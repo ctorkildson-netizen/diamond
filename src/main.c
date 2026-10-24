@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 #include "pico/stdlib.h"
 #include "drivers/lcd.h"
 #include "drivers/font.h"
@@ -558,6 +559,28 @@ static bool edit(const char *path, bool is_new)
 	return r != ED_EXIT;
 }
 
+/* The shell's clock (shell v1.1 and later), for dating the files Diamond
+   saves: the local time, or false if the shell hasn't set it */
+static bool shell_clock(uint16_t *date, uint16_t *time)
+{
+#ifdef PICOCALC_SHELL_HAS_TIME
+	int64_t ms;
+	int offset;
+	if (!picocalc_shell_time(&ms, &offset)) return false;
+	time_t t = (time_t)(ms / 1000) + (time_t)offset * 60;
+	struct tm tm;
+	gmtime_r(&t, &tm);
+	if (tm.tm_year + 1900 < 1980 || tm.tm_year + 1900 > 2107) return false;
+	fat32_pack_time(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+	                date, time);
+	return true;
+#else
+	(void)date;
+	(void)time;
+	return false;
+#endif
+}
+
 int main(void)
 {
 	sb_init();
@@ -565,6 +588,7 @@ int main(void)
 	lcd_set_font(&font_8x10);
 	lcd_enable_cursor(false);
 	fat32_init();
+	fat32_set_time_source(shell_clock);
 	keyboard_init();
 	take_memory();
 	sign_on();

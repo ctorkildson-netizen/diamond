@@ -25,5 +25,6 @@ pico_set_program_name(diamond "diamond")
 pico_enable_stdio_uart(diamond 0)
 pico_enable_stdio_usb(diamond 0)
 target_link_libraries(diamond picocalc_picker
-    pico_stdlib hardware_gpio hardware_i2c hardware_spi hardware_pio hardware_watchdog)
+    pico_stdlib hardware_gpio hardware_i2c hardware_spi hardware_pio hardware_watchdog
+    hardware_powman)
 pico_add_extra_outputs(diamond)
