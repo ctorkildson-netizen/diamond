@@ -1082,11 +1082,11 @@ static const char *const o_menu[] = {
 static const char *const p_menu[] = {
 	"^P  bold and italic: then one of these keys",
 	"",
-	"B  bold           Y  italic",
+	"B  bold     Y  italic     Space  back to plain",
 	"",
 	"With a block marked (^KB ^KK), it becomes bold or",
-	"italic. Otherwise what you type next is; ^PB or",
-	"^PY again, just after, goes back to plain text.",
+	"italic. Otherwise what you type next is, until",
+	"^P Space (or ^PB, ^PY again) at the end of it.",
 	"",
 	"(with Ctrl or without)",
 };
@@ -1121,6 +1121,7 @@ static const char *const keys_help[] = {
 	"^KC ^KV ^KY   copy, move, delete the block",
 	"^KH           hide or show the block",
 	"^PB ^PY       bold, italic (the block, or what's typed)",
+	"^P Space      back to plain text (at the end of bold)",
 	"^OD           show the Markdown marks (** _ # `)",
 	"^K0..^K9      set a place marker; ^Q0..^Q9 go there",
 	"^QF ^QA ^L    find; find and replace; again",
@@ -1148,6 +1149,7 @@ static int second_key(const char *name, const char *const *menu, int n)
 	if (k >= 'A' && k <= 'Z') return k;
 	if (k >= '0' && k <= '9') return k;
 	if (k == K_BS || k == K_DEL) return 8;
+	if (k == ' ') return ' ';
 	return 0;
 }
 
@@ -1534,6 +1536,15 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 		case CTRL('P'): {
 			int p = second_key("^P", p_menu, P_MENU_LINES);
 			int f = p == 'B' ? F_BOLD : p == 'Y' ? F_ITAL : 0;
+			if (p == ' ') {		/* back to plain: out past any closing marks here */
+				E.pend = 0;
+				if (vis(E.cur) != E.cur && E.cur > 0 && at(E.cur - 1) != '\n' &&
+				    (fmt(E.cur - 1) & (F_BOLD | F_ITAL)))
+					E.cur = vis(E.cur), stay = true;
+				else if (E.cur > 0 && !hidden(E.cur - 1) && (fmt(E.cur - 1) & (F_BOLD | F_ITAL)))
+					say(" Plain text starts at the end of the bold or italic");
+				break;
+			}
 			if (!f) { E.pend = 0; break; }
 			if (block_ok()) { wrap_block(f == F_BOLD ? "**" : "*"); E.pend = 0; break; }
 			/* just inside the end of bold or italic: step out past the marks */
