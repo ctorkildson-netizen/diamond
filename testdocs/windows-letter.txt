@@ -1,0 +1,8 @@
+Dear Aunt Edna,
+
+This file was saved by Windows, so its lines end with CR LF. Diamond keeps them that way: edit this, save it with ^KS, and it should still open correctly in Notepad.
+
+Thank you again for the fruitcake.
+
+With love,
+Chris
