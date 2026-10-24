@@ -133,24 +133,28 @@ static void insert(const char *s, size_t n)
 
 /* delete n bytes at pos; keep them for ^U if keep.  Deletions made one
    after another at the same place (^Y ^Y ^Y) are kept together. */
+/* keep n deleted bytes (from src, or the text at pos) for ^U; spanning
+   pos..pos+span in the text before they went */
+static void keep_kill(size_t pos, size_t span, const char *src, size_t n)
+{
+	bool after = E.kill_cmd + 1 == E.cmd && pos == E.kill_pos;		/* ^Y ^Y */
+	bool before = E.kill_cmd + 1 == E.cmd && pos + span == E.kill_pos;	/* ^Q Bksp twice */
+	size_t old = after || before ? E.unerase_len : 0;
+	size_t k = n < UNERASE_MAX - old ? n : UNERASE_MAX - old;
+	char *u = realloc(E.unerase, old + k + 1);
+	if (!u) return;
+	if (before) memmove(u + k, u, old);
+	for (size_t i = 0; i < k; i++) u[(before ? 0 : old) + i] = src ? src[i] : at(pos + i);
+	E.unerase = u;
+	E.unerase_len = old + k;
+	E.kill_cmd = E.cmd;
+	E.kill_pos = pos;
+}
+
 static void delete(size_t pos, size_t n, bool keep)
 {
 	if (!n) return;
-	if (keep) {
-		bool after = E.kill_cmd + 1 == E.cmd && pos == E.kill_pos;		/* ^Y ^Y */
-		bool before = E.kill_cmd + 1 == E.cmd && pos + n == E.kill_pos;	/* ^Q Bksp twice */
-		size_t old = after || before ? E.unerase_len : 0;
-		size_t k = n < UNERASE_MAX - old ? n : UNERASE_MAX - old;
-		char *u = realloc(E.unerase, old + k + 1);
-		if (u) {
-			if (before) memmove(u + k, u, old);
-			for (size_t i = 0; i < k; i++) u[(before ? 0 : old) + i] = at(pos + i);
-			E.unerase = u;
-			E.unerase_len = old + k;
-			E.kill_cmd = E.cmd;
-			E.kill_pos = pos;
-		}
-	}
+	if (keep) keep_kill(pos, n, NULL, n);
 	move_gap(pos);
 	ge += n;
 	E.edits++;
@@ -171,7 +175,13 @@ static void delete(size_t pos, size_t n, bool keep)
    pairing them, simplified); `backticks` around code; a backslash before
    a mark character (the backslash).  A mark with no partner is left as
    text, so it shows. */
-enum { F_HIDDEN = 1, F_BOLD = 2, F_ITAL = 4, F_CODE = 8, F_MARK = 16, F_HEAD = 32 /* x level */ };
+enum { F_HIDDEN = 1, F_BOLD = 2, F_ITAL = 4, F_CODE = 8, F_OPEN = 16 /* an opening mark */, F_HEAD = 32 /* x level */ };
+#define F_MARK F_HIDDEN		/* every hidden byte is a mark */
+/* on a * or _ mark (which is never drawn, so needs no heading level): whether
+   it belongs to an italic pair or a bold one */
+#define F_W1 32
+#define F_W2 64
+#define WIDTH(f) ((f) & F_W2 ? 2 : 1)
 #define PARA_MAX 8192		/* longer paragraphs are shown as they are */
 
 static uint8_t finfo[PARA_MAX];
@@ -214,12 +224,12 @@ static void parse_para(size_t ps, size_t n)
 		}
 		if (end == (size_t)-1) { k += run - 1; continue; }
 		for (size_t q = k; q < end + run; q++) finfo[q] |= F_CODE;
-		for (size_t q = 0; q < run; q++) finfo[k + q] |= F_HIDDEN | F_MARK, finfo[end + q] |= F_HIDDEN | F_MARK;
+		for (size_t q = 0; q < run; q++) finfo[k + q] |= F_HIDDEN | F_OPEN, finfo[end + q] |= F_HIDDEN;
 		k = end + run - 1;
 	}
 
 	/* emphasis: runs of * or _, paired with a stack of openers */
-	struct { size_t pos, len; char ch; } st[32];
+	struct { size_t pos, len, run; char ch; bool both; } st[32];
 	int sp = 0;
 	for (size_t k = body; k < n; ) {
 		char c = C(k);
@@ -238,13 +248,19 @@ static void parse_para(size_t ps, size_t n)
 		size_t pos = k, left = run;
 		if (close) {
 			while (left) {
+				/* CommonMark's "rule of 3": a run that could open or close
+				   doesn't pair with one whose length adds up to a multiple
+				   of 3 (so **a*b* reads as bold a, then italic b) */
 				int o = sp - 1;
-				while (o >= 0 && st[o].ch != c) o--;
+				while (o >= 0 && (st[o].ch != c ||
+				       ((open || st[o].both) && (st[o].run + run) % 3 == 0 &&
+				        !(st[o].run % 3 == 0 && run % 3 == 0)))) o--;
 				if (o < 0) break;
 				size_t use = left >= 2 && st[o].len >= 2 ? 2 : 1;
 				size_t ob = st[o].pos + st[o].len - use, oe = st[o].pos + st[o].len;
-				for (size_t q = ob; q < oe; q++) finfo[q] |= F_HIDDEN | F_MARK;
-				for (size_t q = pos; q < pos + use; q++) finfo[q] |= F_HIDDEN | F_MARK;
+				uint8_t w = use == 2 ? F_W2 : F_W1;
+				for (size_t q = ob; q < oe; q++) finfo[q] = (uint8_t)((finfo[q] & 0x1F) | F_HIDDEN | F_OPEN | w);
+				for (size_t q = pos; q < pos + use; q++) finfo[q] = (uint8_t)((finfo[q] & 0x1F) | F_HIDDEN | w);
 				for (size_t q = oe; q < pos; q++) finfo[q] |= use == 2 ? F_BOLD : F_ITAL;
 				st[o].len -= use;
 				sp = st[o].len ? o + 1 : o;	/* openers above it are unmatched */
@@ -255,6 +271,8 @@ static void parse_para(size_t ps, size_t n)
 		if (left && open && sp < 32) {
 			st[sp].pos = pos;
 			st[sp].len = left;
+			st[sp].run = run;
+			st[sp].both = close;
 			st[sp].ch = c;
 			sp++;
 		}
@@ -684,21 +702,308 @@ static void scroll_up(void)		/* ^W: the text moves down a line */
 	if (lines_between(E.top, line_start(E.cur)) >= text_rows()) go_up();
 }
 
+static void place_marks(size_t pos, const char *cl, size_t ncl, const char *op, size_t nop, bool cur_inside);
+
 /* delete the character the cursor shows on (not the marks before it) */
 static void delete_char(size_t p)
 {
-	size_t a = vis(p);
-	delete(a, next_char(p) - a, false);
+	size_t a = vis(p), b = next_char(p);
+	bool marks_round = a > 0 && hidden(a - 1) && b < len() && hidden(b);
+	/* opening marks just before it, closing ones just after */
+	size_t lo = a, hi = b;
+	while (lo > 0 && hidden(lo - 1) && (fmt(lo - 1) & F_OPEN) && strchr("*_`", at(lo - 1))) lo--;
+	while (hi < len() && hidden(hi) && !(fmt(hi) & F_OPEN) && strchr("*_`", at(hi))) hi++;
+	delete(a, b - a, false);
+	hi -= b - a;
+	if (!marks_round || a - lo != hi - a) {
+		/* a mark now against a space wouldn't count: move it to the word */
+		char m[16];
+		size_t nl = a - lo, nh = hi - a;
+		if (nl && nl < 16 && a < len() && (at(a) == ' ' || at(a) == '\t')) {
+			for (size_t i = 0; i < nl; i++) m[i] = at(lo + i);
+			delete(lo, nl, false);
+			place_marks(lo, NULL, 0, m, nl, false);
+			return;
+		}
+		if (nh && nh < 16 && a > 0 && (at(a - 1) == ' ' || at(a - 1) == '\t')) {
+			for (size_t i = 0; i < nh; i++) m[i] = at(a + i);
+			delete(a, nh, false);
+			place_marks(a, m, nh, NULL, 0, false);
+			return;
+		}
+	}
 	/* the last character of something bold or italic: take its marks too */
 	size_t l = 0, r = 0;
 	char m = a < len() ? at(a) : 0;
-	if (m != '*' && m != '_') return;
+	if (!marks_round || (m != '*' && m != '_' && m != '`')) return;
 	while (l < a && at(a - 1 - l) == m) l++;
 	while (a + r < len() && at(a + r) == m) r++;
 	if (l == r && l >= 1 && l <= 3) {
 		delete(a - l, 2 * l, false);
 		E.cur = a - l;
 	}
+}
+
+/* Which bytes of a..b go when a..b is deleted: all but the hidden marks
+   whose partners are outside it (so bold stays paired).  Marks pair up
+   in order, each closing mark with the last opening one of its kind. */
+static void going(size_t a, size_t b, uint8_t *go)
+{
+	size_t st[64];
+	int sp = 0;
+	for (size_t i = a; i < b; i++) {
+		go[i - a] = 1;
+		if (!hidden(i)) continue;
+		char c = at(i);
+		if (c != '*' && c != '_' && c != '`') continue;	/* # and \\ go with their text */
+		if (fmt(i) & F_OPEN) {
+			go[i - a] = 0;			/* kept, unless its partner turns up */
+			if (sp < 64) st[sp++] = i;
+		} else {
+			int o = sp - 1;
+			while (o >= 0 && at(st[o]) != c) o--;
+			if (o < 0) { go[i - a] = 0; continue; }	/* its opener is before a */
+			go[st[o] - a] = 1;
+			for (int q = o; q < sp - 1; q++) st[q] = st[q + 1];
+			sp--;
+		}
+	}
+}
+
+/* delete a..b, keeping marks whose partners stay; for ^U if keep */
+static void delete_keep(size_t a, size_t b, bool keep)
+{
+	if (b <= a) return;
+	/* the hidden marks just outside a..b count too: a kept mark whose
+	   partner is right there, with nothing shown between, would make an
+	   empty pair, so both go */
+	size_t lo = a, hi = b;
+	if (!E.marks) {
+		while (lo > 0 && hidden(lo - 1)) lo--;
+		while (hi < len() && hidden(hi)) hi++;
+	}
+	size_t n = hi - lo;
+	uint8_t *go = malloc(n), *opener = malloc(n), *fl = malloc(n);
+	char *t = keep ? malloc(n) : NULL, *orig = malloc(n);
+	if (!go || !opener || !orig || !fl || (keep && !t)) {
+		free(go); free(opener); free(t); free(orig); free(fl);
+		delete(a, b - a, keep);
+		return;
+	}
+	memset(go, 0, n);
+	going(a, b, go + (a - lo));
+	for (size_t i = 0; i < n; i++) {
+		orig[i] = at(lo + i);
+		fl[i] = fmt(lo + i);
+		opener[i] = hidden(lo + i) && (fl[i] & F_OPEN);
+	}
+	#define MARK(i) (hidden(lo + (i)) && strchr("*_`", orig[i]))
+	/* kept closing marks against openers just before a */
+	size_t ost[32];
+	int osp = 0;
+	for (size_t i = 0; i < a - lo; i++) {
+		if (!MARK(i)) continue;
+		if (opener[i]) { if (osp < 32) ost[osp++] = i; }
+		else if (osp && orig[ost[osp - 1]] == orig[i]) osp--;
+	}
+	for (size_t i = a - lo; i < b - lo; i++) {
+		if (go[i] || !MARK(i) || opener[i]) continue;
+		if (!osp || orig[ost[osp - 1]] != orig[i]) break;
+		go[i] = go[ost[--osp]] = 1;
+	}
+	/* kept opening marks against closers just after b */
+	size_t cst[32];
+	int cn = 0, cj = 0;
+	{
+		int depth[3] = { 0, 0, 0 };
+		for (size_t i = b - lo; i < n; i++) {
+			if (!MARK(i)) continue;
+			int ci = orig[i] == '*' ? 0 : orig[i] == '_' ? 1 : 2;
+			if (opener[i]) depth[ci]++;
+			else if (depth[ci]) depth[ci]--;
+			else if (cn < 32) cst[cn++] = i;
+		}
+	}
+	for (size_t i = b - lo; i-- > a - lo; ) {
+		if (go[i] || !MARK(i) || !opener[i]) continue;
+		if (cj >= cn || orig[cst[cj]] != orig[i]) break;
+		go[i] = go[cst[cj++]] = 1;
+	}
+	/* with nothing but marks left between the text either side (and no
+	   space there), closing marks meeting the same opening ones join two
+	   bold pieces into one: both go */
+	if (!E.marks && !(lo > 0 && (at(lo - 1) == ' ' || at(lo - 1) == '\t' || at(lo - 1) == '\n')) &&
+	    !(hi < len() && (at(hi) == ' ' || at(hi) == '\t' || at(hi) == '\n')) && lo > 0 && hi < len()) {
+		/* the closing and opening marks there, as pairs' ends: one byte for
+		   an italic's, two for a bold's (and a backtick each) */
+		size_t C[64], O[64], cw[64], ow[64];
+		int nc = 0, no = 0;
+		for (size_t i = 0; i < n; i++) {
+			if (go[i] || !MARK(i)) continue;
+			size_t w = orig[i] == '`' ? 1 : WIDTH(fl[i]);
+			if (i + w > n) w = 1;
+			if (!opener[i]) { if (nc < 64) C[nc] = i, cw[nc++] = w; }
+			else if (no < 64) O[no] = i, ow[no++] = w;
+			i += w - 1;
+		}
+		/* the outermost closing end against the outermost opening one: the
+		   same kind joins up ("**" then "*" is bold ending and italic
+		   starting, which reads fine as it is) */
+		int oi = 0;
+		while (nc && oi < no && orig[C[nc - 1]] == orig[O[oi]] && cw[nc - 1] == ow[oi]) {
+			nc--;
+			for (size_t q = 0; q < cw[nc]; q++) go[C[nc] + q] = 1;
+			for (size_t q = 0; q < ow[oi]; q++) go[O[oi] + q] = 1;
+			oi++;
+		}
+	}
+	#undef MARK
+	/* for ^U: what goes from a..b */
+	size_t k = 0;
+	if (t) for (size_t i = a - lo; i < b - lo; i++) if (go[i]) t[k++] = orig[i];
+	/* the marks of a..b that stay, closing ones and opening ones */
+	char cl[64], op[64];
+	size_t ncl = 0, nop = 0, stay = 0;
+	for (size_t i = a - lo; i < b - lo; i++)
+		if (!go[i]) {
+			stay++;
+			if (opener[i]) { if (nop < 64) op[nop++] = orig[i]; }
+			else if (ncl < 64) cl[ncl++] = orig[i];
+		}
+	/* delete, from the end, a run at a time */
+	size_t before_a = 0;		/* how much goes before a (moves a back) */
+	for (size_t i = 0; i < a - lo; i++) before_a += go[i];
+	for (size_t i = n; i > 0; ) {
+		size_t e = i;
+		while (i > 0 && go[i - 1]) i--;
+		if (i < e) delete(lo + i, e - i, false);
+		while (i > 0 && !go[i - 1]) i--;
+	}
+	a -= before_a;
+	if (t && k) keep_kill(a, b - a + before_a, t, k);
+	/* the marks kept are together at a now: put them against the text
+	   either side of the gap (with no gap, a closing mark meeting the same
+	   opening one joins two bold pieces into one: both go) */
+	if (stay) {
+		delete(a, stay, false);
+		place_marks(a, cl, ncl, op, nop, false);
+	}
+	free(go); free(opener); free(t); free(orig); free(fl);
+}
+
+/* the text of a..b without its unpartnered marks (malloc'd; *n its length) */
+static char *text_of(size_t a, size_t b, size_t *n)
+{
+	uint8_t *go = malloc(b - a + 1);
+	char *t = malloc(b - a + 1);
+	*n = 0;
+	if (!go || !t) { free(go); free(t); return NULL; }
+	going(a, b, go);
+	for (size_t i = a; i < b; i++) if (go[i - a]) t[(*n)++] = at(i);
+	free(go);
+	return t;
+}
+
+/* put marks into the text at pos: closing ones against the text before
+   (back over any spaces: a closing mark after a space doesn't close), and
+   opening ones against the text after (on over spaces); the cursor moves
+   along if it's after them (or at them, for the opening ones if
+   cur_inside) */
+static void place_marks(size_t pos, const char *cl, size_t ncl, const char *op, size_t nop, bool cur_inside)
+{
+	size_t cur = E.cur;
+	char o2[64], c2[64];
+	if (nop > 64 || ncl > 64) return;
+	if (nop) memcpy(o2, op, nop);
+	if (ncl) memcpy(c2, cl, ncl);
+	op = o2;
+	cl = c2;
+	if (nop) {
+		size_t r = pos;
+		while (r < len() && (at(r) == ' ' || at(r) == '\t')) r++;
+		/* its closing mark right there: bold with nothing in it, so neither */
+		while (nop && r < len() && hidden(r) && !(fmt(r) & F_OPEN) && at(r) == op[nop - 1]) {
+			delete(r, 1, false);
+			if (cur > r) cur--;
+			nop--;
+		}
+	}
+	if (nop) {
+		size_t r = pos;
+		while (r < len() && (at(r) == ' ' || at(r) == '\t')) r++;
+		E.cur = r;
+		insert(op, nop);
+		if (cur > r || (cur == r && cur_inside)) cur += nop;
+	}
+	if (ncl) {
+		size_t q = pos, ps = para_start(pos);
+		while (q > ps && (at(q - 1) == ' ' || at(q - 1) == '\t')) q--;
+		while (ncl && q > 0 && hidden(q - 1) && (fmt(q - 1) & F_OPEN) && at(q - 1) == cl[0]) {
+			delete(q - 1, 1, false);	/* its opening mark right there: neither */
+			if (cur >= q) cur--;
+			q--;
+			memmove(c2, c2 + 1, --ncl);
+		}
+		E.cur = q;
+		if (!ncl) { E.cur = cur; return; }
+		insert(cl, ncl);
+		if (cur >= q) cur += ncl;
+	}
+	E.cur = cur;
+}
+
+/* Insert text with line breaks in it.  A break inside something bold
+   (or italic, or code) would leave its marks in two paragraphs, unpaired,
+   so the marks are closed before the first break and opened again after
+   the last: both halves stay bold. */
+static void insert_text(const char *s, size_t n)
+{
+	const char *nl = memchr(s, '\n', n);
+	if (!nl || E.marks) { insert(s, n); return; }
+	/* past any closing marks just ahead (the end of a bold word: nothing to split) */
+	size_t p = E.cur;
+	while (p < len() && hidden(p) && !(fmt(p) & F_OPEN)) p++;
+	char st[16];
+	size_t sat[16];
+	int sp = 0;
+	for (size_t i = para_start(p); i < p; i++) {
+		if (!hidden(i)) continue;
+		char c = at(i);
+		if (c != '*' && c != '_' && c != '`') continue;
+		if (fmt(i) & F_OPEN) { if (sp < 16) sat[sp] = i, st[sp++] = c; }
+		else {
+			int o = sp - 1;
+			while (o >= 0 && st[o] != c) o--;
+			if (o >= 0) { for (int q = o; q < sp - 1; q++) st[q] = st[q + 1], sat[q] = sat[q + 1]; sp--; }
+		}
+	}
+	E.cur = p;
+	if (!sp) { insert(s, n); return; }
+	/* opening marks with nothing after them yet (the break comes straight
+	   after "**"): they move to after the break instead of being closed */
+	int empty = 0;
+	for (int q = sp - 1; q >= 0; q--) {
+		bool shown_after = false;
+		for (size_t i = sat[q] + 1; i < p && !shown_after; i++) shown_after = !hidden(i);
+		if (shown_after) break;
+		empty++;
+	}
+	for (int q = sp - 1; q >= sp - empty; q--) {	/* innermost first: positions stay good */
+		delete(sat[q], 1, false);
+		p--;
+	}
+	E.cur = p;
+	const char *last = s + n;
+	while (last[-1] != '\n') last--;		/* just after the last break */
+	size_t a = E.cur;
+	insert(s, n);
+	if (E.cur != a + n) return;			/* memory full */
+	char cl[16], op[16];
+	int ncl = sp - empty;
+	for (int q = 0; q < ncl; q++) cl[q] = st[ncl - 1 - q];
+	for (int q = 0; q < sp; q++) op[q] = st[q];
+	place_marks(a + (size_t)(last - s), NULL, 0, op, (size_t)sp, true);	/* open again after the last break */
+	place_marks(a + (size_t)(nl - s), cl, (size_t)ncl, NULL, 0, false);	/* close before the first */
 }
 
 /* ^PB, ^PY with a block: put marks around each paragraph of it */
@@ -893,18 +1198,19 @@ static bool ask_text(const char *label, char *buf_, size_t size)
 static void block_copy(bool move)
 {
 	if (!block_ok()) { say(" No block: mark its start with ^KB and its end with ^KK"); return; }
-	size_t n = E.bk - E.bb;
 	if (move && E.cur > E.bb && E.cur < E.bk) { say(" The cursor is inside the block"); return; }
-	if (!move && !make_room(n)) { say(" Memory is full: no room for a copy of the block"); return; }
-	char *t = malloc(n);
+	/* the block's text, less any marks whose partners are outside it (they
+	   stay where they are, so nothing is left half bold) */
+	size_t n;
+	char *t = text_of(E.bb, E.bk, &n);
 	if (!t) { say(" Not enough memory to copy the block"); return; }
-	for (size_t i = 0; i < n; i++) t[i] = at(E.bb + i);
-	if (move) delete(E.bb, n, false);	/* moves the cursor back if it was after */
-	size_t at_ = E.cur;
-	insert(t, n);
+	if (!move && !make_room(n)) { free(t); say(" Memory is full: no room for a copy of the block"); return; }
+	if (move) delete_keep(E.bb, E.bk, false);	/* moves the cursor back if it was after */
+	size_t at_ = E.cur, was = len();
+	insert_text(t, n);
 	free(t);
 	E.bb = at_;
-	E.bk = at_ + n;
+	E.bk = at_ + (len() - was);
 	E.cur = at_;
 }
 
@@ -914,29 +1220,61 @@ static bool word_ch(char c) { return (c >= '0' && c <= '9') || ((c | 0x20) >= 'a
 
 static char fold(char c, bool nocase) { return nocase && c >= 'A' && c <= 'Z' ? c + 32 : c; }
 
-/* is E.find at p? */
-static bool match_at(size_t p, bool nocase, bool whole)
+/* is E.find at p, as the text is shown (hidden marks passed over)?  Its
+   end, or NOWHERE */
+static size_t match_at(size_t p, bool nocase, bool whole)
 {
-	size_t n = strlen(E.find);
-	if (p + n > len()) return false;
-	for (size_t i = 0; i < n; i++)
-		if (fold(at(p + i), nocase) != fold(E.find[i], nocase)) return false;
-	if (whole && ((p > 0 && word_ch(at(p - 1))) || (p + n < len() && word_ch(at(p + n)))))
-		return false;
-	return true;
+	size_t n = strlen(E.find), q = p, end = len();
+	if (q >= end || hidden(q)) return NOWHERE;
+	for (size_t i = 0; i < n; i++) {
+		while (i && q < end && hidden(q)) q++;
+		if (q >= end || fold(at(q), nocase) != fold(E.find[i], nocase)) return NOWHERE;
+		q++;
+	}
+	if (whole) {
+		size_t b = canon(p, 0), v = vis(q);
+		if ((b > 0 && word_ch(at(b - 1))) || (v < end && word_ch(at(v)))) return NOWHERE;
+	}
+	return q;
 }
 
-/* the next match from p (or before p, backwards); NOWHERE if none */
-static size_t search(size_t p, bool back, bool nocase, bool whole)
+/* the next match from p (or before p, backwards); NOWHERE if none, and
+   where it ends in *e */
+static size_t search(size_t p, bool back, bool nocase, bool whole, size_t *e)
 {
 	if (!E.find[0]) return NOWHERE;
 	if (back) {
-		while (p > 0) { p--; if (match_at(p, nocase, whole)) return p; }
+		while (p > 0) { p--; if ((*e = match_at(p, nocase, whole)) != NOWHERE) return p; }
 		return NOWHERE;
 	}
 	for (; p < len(); p++)
-		if (match_at(p, nocase, whole)) return p;
+		if ((*e = match_at(p, nocase, whole)) != NOWHERE) return p;
 	return NOWHERE;
+}
+
+/* put the replacement over what was found at m..e: letter for letter over
+   the shown characters, so the marks among them stay where they are; any
+   more letters go after the last, any fewer and the rest are deleted.
+   Where the cursor goes after it. */
+static size_t replace_at(size_t m, size_t e)
+{
+	size_t pos[sizeof E.find], nv = 0, rlen = strlen(E.repl);
+	for (size_t q = m; q < e && nv < sizeof pos / sizeof pos[0]; q++)
+		if (!hidden(q)) pos[nv++] = q;
+	size_t k = rlen < nv ? rlen : nv;
+	for (size_t i = 0; i < k; i++)
+		if (at(pos[i]) != E.repl[i]) {
+			E.cur = pos[i];
+			delete(pos[i], 1, false);
+			insert(&E.repl[i], 1);
+		}
+	if (rlen > nv) {
+		E.cur = pos[nv - 1] + 1;
+		insert(E.repl + nv, rlen - nv);
+		return E.cur;
+	}
+	for (size_t i = nv; i > rlen; i--) delete_char(pos[i - 1]);
+	return rlen ? pos[rlen - 1] + 1 : m;
 }
 
 /* ^QF (replace false) and ^QA (true), or ^L (again: ask nothing) */
@@ -966,17 +1304,18 @@ static void find_replace(bool replace, bool again)
 	size_t p = global && !again ? (back ? len() : 0) : E.cur;
 	int count = 0;
 	for (;;) {
-		size_t m = search(p, back, nocase, whole);
+		size_t me;
+		size_t m = search(p, back, nocase, whole, &me);
 		if (m == NOWHERE) break;
-		E.cur = back ? m : m + flen;
+		E.cur = back ? m : me;
 		if (!replace) {
 			E.hl_a = m;
-			E.hl_b = m + flen;
+			E.hl_b = me;
 			return;
 		}
 		if (!noask) {
 			E.hl_a = m;
-			E.hl_b = m + flen;
+			E.hl_b = me;
 			keep_in_view();
 			draw(NULL);
 			clear_row(0, A_MSG);
@@ -988,12 +1327,10 @@ static void find_replace(bool replace, bool again)
 			if (k != 'y' && k != 'Y') { p = back ? m : m + 1; continue; }
 		}
 		if (rlen > flen && !make_room(rlen - flen)) { say(" Memory is full"); return; }
-		delete(m, flen, false);
-		E.cur = m;
-		insert(E.repl, rlen);
+		size_t after = replace_at(m, me);
 		count++;
-		p = back ? m : m + rlen;
-		if (!back) E.cur = m + rlen;
+		p = back ? m : after;
+		E.cur = back ? m : after;
 	}
 	char b[SCR_COLS + 1];
 	if (replace) snprintf(b, sizeof b, " %d replaced", count);
@@ -1067,19 +1404,19 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 			if (canon(E.cur, 0) > 0) delete_char(prev_char(E.cur));
 			break;
 		case CTRL('T'):
-			delete(E.cur, word_right(E.cur) - E.cur, true);
+			delete_keep(E.cur, word_right(E.cur), true);
 			break;
 		case CTRL('Y'):
 			ls = line_start(E.cur);
-			delete(ls, next_line(ls) - ls, true);
+			delete_keep(ls, next_line(ls), true);
 			E.cur = ls;
 			break;
 		case CTRL('U'):
-			if (E.unerase_len) insert(E.unerase, E.unerase_len);
+			if (E.unerase_len) insert_text(E.unerase, E.unerase_len);
 			break;
 		case CTRL('N'): {
 			size_t at_ = E.cur;
-			insert("\n", 1);
+			insert_text("\n", 1);
 			E.cur = at_;
 			break;
 		}
@@ -1088,7 +1425,7 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 			if (E.last_search) find_replace(E.last_search == 2, true);
 			else say(" Nothing to repeat: ^QF finds");
 			break;
-		case K_ENTER: insert("\n", 1); break;
+		case K_ENTER: insert_text("\n", 1); break;
 		case K_TAB: insert("    ", 4 - col_of(line_start(E.cur), E.cur) % 4); break;
 		case K_ESC: say(" ^KD saves and goes back to the list; ^J is help"); break;
 		case K_SHOT: {
@@ -1130,7 +1467,7 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 				    !ask_yes(" The block is too big for ^U to bring back. Delete it? (Y/N)"))
 					break;
 				E.kill_cmd = 0;		/* not added to an earlier deletion */
-				delete(E.bb, E.bk - E.bb, true);
+				delete_keep(E.bb, E.bk, true);
 				E.bb = E.bk = NOWHERE;
 				break;
 			case 'S': save(); break;
@@ -1173,10 +1510,10 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 			}
 			case 'Y': {
 				size_t last = line_last(ls);
-				delete(E.cur, last - E.cur, true);
+				delete_keep(E.cur, last, true);
 				break;
 			}
-			case 8: delete(ls, E.cur - ls, true); break;
+			case 8: delete_keep(ls, E.cur, true); break;
 			}
 			break;
 		case CTRL('O'):
@@ -1230,6 +1567,10 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 				char c = (char)k;
 				if (E.overtype && vis(E.cur) < len() && at(vis(E.cur)) != '\n')
 					delete_char(E.cur);
+				/* a space at the end of something bold goes after its marks
+				   (inside, it would stop them closing) */
+				if (c == ' ' && !E.pend && !E.marks)
+					while (E.cur < len() && hidden(E.cur) && !(fmt(E.cur) & F_OPEN)) E.cur++;
 				if (E.pend && c != ' ') {
 					const char *m = E.pend == (F_BOLD | F_ITAL) ? "***" : E.pend == F_BOLD ? "**" : "*";
 					size_t ml = strlen(m);
