@@ -66,6 +66,8 @@ static struct {
 	unsigned edits;		/* counts changes to the text (for the format cache) */
 	bool marks;		/* ^OD: show the Markdown marks */
 	int pend;		/* ^PB/^PY with nothing marked: the next character typed */
+	int carry;		/* a space typed at the end of bold went after its marks;
+				   the next letter takes them along (still bold): the style */
 	size_t bb, bk;		/* the block: ^KB and ^KK (NOWHERE: not set) */
 	bool hide;		/* ^KH: the block isn't shown (or used) */
 	size_t mark[10];	/* ^K0..^K9 */
@@ -567,7 +569,12 @@ static void draw(const char *pending)
 		         line % LINES_PER_PAGE + 1, col_of(ls, E.cur) + 1);
 		put(0, 30, A_STATUS, b);
 		put(0, 48, A_STATUS, E.overtype ? "Overtype" : "Insert");
-		if (E.pend) put(0, 42, A_STATUS, E.pend == (F_BOLD | F_ITAL) ? "B+I" : E.pend == F_BOLD ? "Bold" : "Ital");
+		/* the style typing would have here: ^PB/^PY waiting, or inside bold */
+		int st = E.pend;
+		if (!st && !E.marks && E.cur > 0 && !hidden(E.cur - 1) && at(E.cur - 1) != '\n')
+			st = fmt(E.cur - 1) & (F_BOLD | F_ITAL);
+		if (!st && E.carry) st = E.carry;	/* (the space just typed: bold carries on) */
+		if (st) put(0, 42, A_STATUS, st == (F_BOLD | F_ITAL) ? "B+I" : st == F_BOLD ? "Bold" : "Ital");
 		if (percent_full() >= 90) {
 			snprintf(b, sizeof b, "%d%%", percent_full());
 			put(0, 57, A_MSG, b);
@@ -1370,7 +1377,7 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 		draw(NULL);
 		ed_show(&scr);
 		int k = ed_key_wait(-1);
-		bool vertical = false, keep_pend = false, stay = false;
+		bool vertical = false, keep_pend = false, stay = false, keep_carry = false;
 		size_t was = E.cur;
 		unsigned edits = E.edits;
 		size_t ls;
@@ -1569,8 +1576,29 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 					delete_char(E.cur);
 				/* a space at the end of something bold goes after its marks
 				   (inside, it would stop them closing) */
-				if (c == ' ' && !E.pend && !E.marks)
+				if (c == ' ' && !E.pend && !E.marks && E.cur < len() && hidden(E.cur) && !(fmt(E.cur) & F_OPEN)) {
+					E.carry = E.cur > 0 ? fmt(E.cur - 1) & (F_BOLD | F_ITAL) : 0;
 					while (E.cur < len() && hidden(E.cur) && !(fmt(E.cur) & F_OPEN)) E.cur++;
+					keep_carry = true;
+				} else if (c != ' ' && E.carry && !E.pend) {
+					/* the closing marks back past the spaces: bring them along */
+					size_t s = E.cur;
+					while (s > 0 && (at(s - 1) == ' ' || at(s - 1) == '\t')) s--;
+					size_t c0 = s;
+					while (c0 > 0 && hidden(c0 - 1) && !(fmt(c0 - 1) & F_OPEN)) c0--;
+					if (c0 < s && s - c0 < 16) {
+						char m[16];
+						size_t ml = s - c0;
+						for (size_t i = 0; i < ml; i++) m[i] = at(c0 + i);
+						delete(c0, ml, false);
+						insert(&c, 1);
+						insert(m, ml);
+						E.cur -= ml;		/* before them: still in bold */
+						E.carry = 0;
+						break;
+					}
+					E.carry = 0;
+				} else if (c == ' ' && E.carry) keep_carry = true;
 				if (E.pend && c != ' ') {
 					const char *m = E.pend == (F_BOLD | F_ITAL) ? "***" : E.pend == F_BOLD ? "**" : "*";
 					size_t ml = strlen(m);
@@ -1587,6 +1615,7 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 		}
 		if (!stay && E.edits == edits && E.cur != was) E.cur = canon(E.cur, para_start(E.cur));	/* a move */
 		if (!keep_pend && !(k >= 0x20 && k < 0x7F)) E.pend = 0;
+		if (!keep_carry) E.carry = 0;
 		if (!vertical) E.want = col_of(line_start(E.cur), E.cur);
 	}
 	buf = NULL;
