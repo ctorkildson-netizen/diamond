@@ -22,6 +22,7 @@ enum {
 	A_H1, A_H2, A_H3,	/* headings (#, ##, ### and below) */
 	A_CODE,			/* `code` */
 	A_MARK,			/* a Markdown mark, when ^OD shows them */
+	A_INBLOCK = 0x40,	/* added to a text style: inside the marked block */
 	A_CURSOR = 0x80		/* added to any of them: the cursor is here */
 };
 

@@ -611,7 +611,8 @@ static void draw(const char *pending)
 		for (size_t i = s; i < e && col < SCR_COLS; i++) {
 			if (!shown(i) && at(i) != '\n') continue;
 			if (i >= E.hl_a && i < E.hl_b) scr.at[row][col] = A_FOUND;
-			else if (block_ok() && i >= E.bb && i < E.bk) scr.at[row][col] = A_BLOCK;
+			else if (block_ok() && i >= E.bb && i < E.bk)
+				scr.at[row][col] = at(i) == '\n' ? A_BLOCK : (uint8_t)(style_of(fmt(i)) | A_INBLOCK);
 			else if (at(i) != '\n') scr.at[row][col] = (uint8_t)style_of(fmt(i));
 			if (i == cv) scr.at[row][col] |= A_CURSOR;
 			if (at(i) == '\n') break;
@@ -1027,7 +1028,23 @@ static void wrap_block(const char *m)
 			while (x < y && at(x) == '#') x++;
 			while (x < y && at(x) == ' ') x++;
 		}
-		if (x < y && make_room(2 * ml)) {
+		/* already bold (or italic) from end to end: take it off instead */
+		size_t os = NOWHERE, cs = NOWHERE;
+		if (x < y && !E.marks) {
+			for (size_t q = x; q + ml <= y && hidden(q) && (fmt(q) & F_OPEN); q++)
+				if (at(q) == m[0] && WIDTH(fmt(q)) == ml) { os = q; break; }
+			size_t c0 = y, c1 = y;
+			while (c0 > x && hidden(c0 - 1) && !(fmt(c0 - 1) & F_OPEN)) c0--;
+			while (c1 < len() && hidden(c1) && !(fmt(c1) & F_OPEN)) c1++;
+			for (size_t q = c1; q >= c0 + ml; q--)
+				if (at(q - 1) == m[0] && WIDTH(fmt(q - 1)) == ml) { cs = q - ml; break; }
+		}
+		if (os != NOWHERE && cs != NOWHERE && cs > os) {
+			delete(cs, ml, false);
+			delete(os, ml, false);
+			cur -= cur >= cs + ml ? 2 * ml : cur > os ? ml : 0;
+			added -= 2 * ml;
+		} else if (x < y && make_room(2 * ml)) {
 			E.cur = y; insert(m, ml);
 			E.cur = x; insert(m, ml);
 			cur += cur >= y ? 2 * ml : cur > x ? ml : 0;

@@ -150,8 +150,9 @@ static void render_row(const screen_t *s, int r)
 {
 	for (int c = 0; c < SCR_COLS; c++) {
 		uint8_t a = s->at[r][c];
-		uint16_t fg = colours[a & 0x7F].fg, bg = colours[a & 0x7F].bg;
-		uint8_t look = colours[a & 0x7F].look;
+		uint16_t fg = colours[a & 0x3F].fg, bg = colours[a & 0x3F].bg;
+		uint8_t look = colours[a & 0x3F].look;
+		if (a & A_INBLOCK) { fg = colours[A_BLOCK].fg; bg = colours[A_BLOCK].bg; }	/* the block's colours, the text's shapes */
 		if (a & A_CURSOR) { uint16_t t = fg; fg = bg ? bg : 0x0000; bg = t; }
 		const uint8_t *g = &font_5x10.glyphs[(uint8_t)s->ch[r][c] * GLYPH_HEIGHT];
 		for (int y = 0; y < GLYPH_HEIGHT; y++) {
@@ -243,7 +244,7 @@ const char *ed_screenshot(const screen_t *s, const char *info)
 	if (ok) ok = write_all(&f, b, (size_t)k);
 	for (int r = 0; ok && r < SCR_ROWS; r++) {
 		k = snprintf(b, sizeof b, "%2d |", r);
-		for (int c = 0; c < SCR_COLS; c++) b[k++] = (char)('0' + (s->at[r][c] & 0x7F));
+		for (int c = 0; c < SCR_COLS; c++) b[k++] = (char)('0' + (s->at[r][c] & 0x3F));
 		k += snprintf(b + k, sizeof b - k, "|\r\n");
 		ok = write_all(&f, b, (size_t)k);
 	}

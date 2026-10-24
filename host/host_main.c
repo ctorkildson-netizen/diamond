@@ -32,11 +32,12 @@ static void print_screen(const screen_t *s)
 		if (getenv("ATTRS")) {		/* the formatting, as letters under the text */
 			static const char code[] = " SMKRQXYkfbiI123cm";
 			bool any = false;
-			for (int c = 0; c < SCR_COLS; c++) any |= (s->at[r][c] & 0x7F) >= A_BLOCK;
+			for (int c = 0; c < SCR_COLS; c++) any |= (s->at[r][c] & 0x7F) >= A_BLOCK && (s->at[r][c] & 0x3F) != A_STATUS;
 			if (any) {
 				putchar(' ');
 				for (int c = 0; c < SCR_COLS; c++) {
 					int a = s->at[r][c] & 0x7F;
+					if (a & A_INBLOCK) a = (a & 0x3F) == A_TEXT ? A_BLOCK : a & 0x3F;
 					putchar(a == A_TEXT ? ' ' : a < (int)sizeof code - 1 ? code[a] : '?');
 				}
 				putchar('\n');
