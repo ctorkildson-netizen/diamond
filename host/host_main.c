@@ -50,6 +50,33 @@ static void print_screen(const screen_t *s)
 
 void ed_show(const screen_t *s) { last = *s; }
 
+/* the reading view's pixels; {PIC} writes them to pic-N.ppm */
+static uint16_t fb[SCR_PX * SCR_PX];
+static int pics;
+void ed_blit(int x, int y, int w, int h, const uint16_t *px)
+{
+	for (int j = 0; j < h; j++)
+		for (int i = 0; i < w; i++)
+			if (x + i < SCR_PX && y + j < SCR_PX) fb[(y + j) * SCR_PX + x + i] = px[j * w + i];
+}
+void ed_redraw(void) {}
+static void write_pic(void)
+{
+	char name[32];
+	snprintf(name, sizeof name, "pic-%d.ppm", ++pics);
+	FILE *f = fopen(name, "wb");
+	if (!f) return;
+	fprintf(f, "P6\n%d %d\n255\n", SCR_PX, SCR_PX);
+	for (int i = 0; i < SCR_PX * SCR_PX; i++) {
+		uint16_t c = fb[i];
+		fputc((c >> 11) << 3 | (c >> 13), f);
+		fputc(((c >> 5) & 63) << 2 | ((c >> 9) & 3), f);
+		fputc((c & 31) << 3 | ((c >> 2) & 7), f);
+	}
+	fclose(f);
+	printf("(wrote %s)\n", name);
+}
+
 static int show_now(void)
 {
 	print_screen(&last);
@@ -75,7 +102,7 @@ int ed_key_wait(int ms)
 				{ "UP", K_UP }, { "DOWN", K_DOWN }, { "LEFT", K_LEFT }, { "RIGHT", K_RIGHT },
 				{ "HOME", K_HOME }, { "END", K_END }, { "PGUP", K_PGUP }, { "PGDN", K_PGDN },
 				{ "DEL", K_DEL }, { "BS", K_BS }, { "ESC", K_ESC }, { "TAB", K_TAB },
-				{ "WAIT", -2 }, { "SHOW", -3 }, { "SHOT", K_SHOT },
+				{ "WAIT", -2 }, { "SHOW", -3 }, { "SHOT", K_SHOT }, { "PIC", -4 },
 			};
 			const char *e = strchr(keys, '}');
 			if (e) {
@@ -85,6 +112,7 @@ int ed_key_wait(int ms)
 						keys = e + 1;
 						if (names[i].k == -2) { if (ms >= 0) return K_NONE; goto next; }
 						if (names[i].k == -3) { show_now(); goto next; }
+						if (names[i].k == -4) { write_pic(); goto next; }
 						return names[i].k;
 					}
 			}

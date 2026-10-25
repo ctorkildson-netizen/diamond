@@ -12,6 +12,7 @@
 
 #define SCR_COLS 64
 #define SCR_ROWS 32
+#define SCR_PX 320		/* the screen is 320 x 320 pixels */
 
 /* what a cell is drawn as */
 enum {
@@ -50,6 +51,10 @@ enum { ED_CLOSE, ED_EXIT };	/* back to the file list; out to the shell */
 int ed_key_wait(int ms);
 /* draw the screen (only what changed since last time is worth drawing) */
 void ed_show(const screen_t *s);
+/* the reading view draws pixels itself: w x h RGB565 pixels, row by row */
+void ed_blit(int x, int y, int w, int h, const uint16_t *px);
+/* something else drew on the screen: the next ed_show() draws all of it */
+void ed_redraw(void);
 /* read the whole file into buf (cap bytes): true, or false and a message */
 bool ed_io_load(const char *path, char *buf, size_t cap, size_t *len, const char **err);
 /* write the document (two pieces, one after the other) in place of the

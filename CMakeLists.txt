@@ -11,7 +11,7 @@ set(DRV ${MODULES}/picocalc-text-starter/drivers)
 include(${MODULES}/picocalc-extras/picker/picker.cmake)
 
 add_executable(diamond
-    src/main.c src/editor.c
+    src/main.c src/editor.c src/reader.c src/rfonts.c
     ${DRV}/fat32.c ${DRV}/sdcard.c ${DRV}/font-5x10.c ${DRV}/font-8x10.c
     ${DRV}/keyboard.c ${DRV}/lcd.c ${DRV}/southbridge.c
 )

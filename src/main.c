@@ -256,6 +256,13 @@ const char *ed_screenshot(const screen_t *s, const char *info)
 	return ok ? name : NULL;
 }
 
+void ed_blit(int x, int y, int w, int h, const uint16_t *px)
+{
+	lcd_blit((uint16_t *)px, (uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h);
+}
+
+void ed_redraw(void) { shown_valid = false; }
+
 void ed_show(const screen_t *s)
 {
 	for (int r = 0; r < SCR_ROWS; r++)

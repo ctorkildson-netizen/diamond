@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "editor.h"
+#include "core.h"
 
 #define WRAP 63			/* text columns; the 64th takes the cursor at a line's end */
 #define LINES_PER_PAGE 54	/* for P and L in the status line: a Letter page */
@@ -177,7 +178,7 @@ static void delete(size_t pos, size_t n, bool keep)
    pairing them, simplified); `backticks` around code; a backslash before
    a mark character (the backslash).  A mark with no partner is left as
    text, so it shows. */
-enum { F_HIDDEN = 1, F_BOLD = 2, F_ITAL = 4, F_CODE = 8, F_OPEN = 16 /* an opening mark */, F_HEAD = 32 /* x level */ };
+/* (the F_ flags are in core.h) */
 #define F_MARK F_HIDDEN		/* every hidden byte is a mark */
 /* on a * or _ mark (which is never drawn, so needs no heading level): whether
    it belongs to an italic pair or a bold one */
@@ -300,6 +301,10 @@ static uint8_t fmt(size_t i)
 	}
 	return f_long ? 0 : finfo[i - f_start];
 }
+
+size_t doc_len(void) { return len(); }
+char doc_at(size_t i) { return at(i); }
+uint8_t doc_fmt(size_t i) { return fmt(i); }
 
 /* does byte i take a column on screen? */
 static bool shown(size_t i)
@@ -1092,10 +1097,11 @@ static const char *const o_menu[] = {
 	"^O  options: then one of these keys",
 	"",
 	"D  show or hide the Markdown marks",
+	"P  the reading view: the document as it reads",
 	"",
 	"(with Ctrl or without)",
 };
-#define O_MENU_LINES 5
+#define O_MENU_LINES 6
 static const char *const p_menu[] = {
 	"^P  bold and italic: then one of these keys",
 	"",
@@ -1140,6 +1146,7 @@ static const char *const keys_help[] = {
 	"^PB ^PY       bold, italic (the block, or what's typed)",
 	"^P Space      back to plain text (at the end of bold)",
 	"^OD           show the Markdown marks (** _ # `)",
+	"^OP           the reading view (Esc comes back)",
 	"^K0..^K9      set a place marker; ^Q0..^Q9 go there",
 	"^QF ^QA ^L    find; find and replace; again",
 	"^JH           help level: 3 shows the most",
@@ -1542,14 +1549,25 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 			case 8: delete_keep(ls, E.cur, true); break;
 			}
 			break;
-		case CTRL('O'):
-			if (second_key("^O", o_menu, O_MENU_LINES) == 'D') {
+		case CTRL('O'): {
+			int o = second_key("^O", o_menu, O_MENU_LINES);
+			if (o == 'P') {		/* the reading view (WordStar 5's ^OP: preview) */
+				size_t back = reader_run(E.cur, base_name(E.path));
+				ed_redraw();
+				if (back > E.cur || back < para_start(E.cur)) {	/* it moved on: go there */
+					E.cur = back;
+					E.top = line_start(E.cur);
+				}
+				break;
+			}
+			if (o == 'D') {
 				E.marks = !E.marks;
 				ln_anchor = 0;		/* the lines wrap differently now */
 				ln_count = 0;
 				say(E.marks ? " The Markdown marks are shown (^OD hides them)" : " The Markdown marks are hidden");
 			}
 			break;
+		}
 		case CTRL('P'): {
 			int p = second_key("^P", p_menu, P_MENU_LINES);
 			int f = p == 'B' ? F_BOLD : p == 'Y' ? F_ITAL : 0;
