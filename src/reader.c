@@ -295,10 +295,22 @@ static int left(const block_t *b)
 	return MARGIN;
 }
 
+/* Page view lays the text out as it would print: a 6.5-inch line on Letter
+   paper with one-inch margins, at 12 points, in units of the reading
+   fonts' pixels (the 14-pixel face standing for 12 points). */
+static bool paper;
+#define PAPER_W 714		/* 8.5 inches */
+#define PAPER_H 924		/* 11 inches */
+#define PAPER_M 84		/* 1 inch */
+#define PAPER_LINE (PAPER_W - 2 * PAPER_M)
+#define PAPER_TEXT (PAPER_H - 2 * PAPER_M)
+#define PS(u) ((u) * 8 / 25)	/* paper units to screen pixels: the page fills the screen's height */
+
 static int line_height(const block_t *b)
 {
 	if (b->kind == B_HEAD) return face(b, 0)->height + 4;
 	if (b->kind == B_RULE) return 12;
+	if (paper) return rfont_body.height;
 	return rfont_body.height + 2;
 }
 
@@ -319,7 +331,7 @@ static void lay_out(int bi)
 	cb = &lb;
 	n_lines = 0;
 	if (lb.kind == B_RULE) { n_lines = 1; return; }
-	int room4 = (W - MARGIN - left(&lb)) * 4;
+	int room4 = paper ? (PAPER_LINE - (left(&lb) - MARGIN)) * 4 : (W - MARGIN - left(&lb)) * 4;
 	if (lb.kind == B_CODE) {		/* code: one line for each, cut at the edge */
 		size_t q = line_end(lb.start) + 1;
 		while (q < lb.end && n_lines < MAX_LINES) {
@@ -609,6 +621,140 @@ static int screenful(spot_t s)
 	return n;
 }
 
+/* ------------------------------------------------------------ page view */
+
+static spot_t *pages;		/* where each page starts */
+static int n_pages;
+
+/* break the document into pages; a heading never ends a page */
+static bool paginate(void)
+{
+	free(pages);
+	n_pages = 0;
+	int cap = 16;
+	pages = malloc(sizeof *pages * (size_t)cap);
+	if (!pages) return false;
+	spot_t s = { 0, 0 };
+	int y = 0;
+	pages[n_pages++] = s;
+	for (;;) {
+		lay_out(s.b);
+		int lh = line_height(&lb), last = s.l == n_lines - 1;
+		int need = lh;
+		if (lb.kind == B_HEAD && last) {	/* and the line after it */
+			spot_t n = s;
+			if (down(&n)) { lay_out(n.b); need += gap_after(&lb) + line_height(&lb); lay_out(s.b); }
+		}
+		if (y > 0 && y + need > PAPER_TEXT) {
+			if (n_pages == cap) {
+				spot_t *more = realloc(pages, sizeof *pages * (size_t)(cap *= 2));
+				if (!more) return false;
+				pages = more;
+			}
+			pages[n_pages++] = s;
+			y = 0;
+		}
+		lay_out(s.b);
+		y += lh + (last ? gap_after(&lb) : 0);
+		if (!down(&s)) break;
+	}
+	return true;
+}
+
+static int page_of(spot_t s)
+{
+	int p = 0;
+	for (int i = 0; i < n_pages; i++)
+		if (pages[i].b < s.b || (pages[i].b == s.b && pages[i].l <= s.l)) p = i;
+	return p;
+}
+
+static const uint16_t C_DESK = RGB(48, 48, 54), C_PAPER = RGB(245, 245, 240),
+	P_TEXT = RGB(120, 120, 120), P_BOLD = RGB(40, 40, 40), P_ITAL = RGB(160, 160, 160),
+	P_HEAD = RGB(20, 20, 20), P_LINK = RGB(70, 110, 210), P_CODE = RGB(90, 150, 90),
+	P_CODEBG = RGB(225, 232, 225), P_RULE = RGB(170, 170, 170), P_BAR = RGB(200, 200, 200);
+
+/* a rectangle, in screen pixels, clipped to the strip sy..sy+sh */
+static void prect(int x0, int y0, int x1, int y1, int sy, int sh, uint16_t c)
+{
+	if (y0 < sy) y0 = sy;
+	if (y1 > sy + sh) y1 = sy + sh;
+	if (x0 < 0) x0 = 0;
+	if (x1 > W) x1 = W;
+	for (int y = y0; y < y1; y++)
+		for (int x = x0; x < x1; x++) px[(y - sy) * W + x] = c;
+}
+
+/* page p, the rows sy..sy+sh of the screen */
+static void draw_page_strip(int p, int sy, int sh)
+{
+	int pw = PS(PAPER_W), ph = PS(PAPER_H), px0 = (W - pw) / 2, py0 = (TEXT_H - ph) / 2;
+	for (int i = 0; i < W * sh; i++) px[i] = C_DESK;
+	prect(px0, py0, px0 + pw, py0 + ph, sy, sh, C_PAPER);
+	spot_t s = pages[p], end = p + 1 < n_pages ? pages[p + 1] : (spot_t){ -1, 0 };
+	int y = PAPER_M;
+	for (;;) {
+		if (s.b == end.b && s.l == end.l) break;
+		lay_out(s.b);
+		cb = &lb;
+		int lh = line_height(&lb), last = s.l == n_lines - 1;
+		int ty = py0 + PS(y), lhp = PS(lh) > 1 ? PS(lh) : 1;
+		if (ty > sy + sh) break;
+		if (ty + lhp >= sy) {
+			int base = px0 + PS(PAPER_M), lx = base + PS(left(&lb) - MARGIN);
+			int b0 = ty + lhp * 3 / 10, b1 = ty + lhp * 8 / 10;
+			if (b1 <= b0) b1 = b0 + 1;
+			if (lb.kind == B_HEAD) { b0 = ty + lhp / 4; b1 = ty + lhp * 9 / 10; }
+			if (lb.kind == B_RULE) prect(base, ty + lhp / 2, base + PS(PAPER_LINE), ty + lhp / 2 + 1, sy, sh, P_RULE);
+			else if (lb.kind == B_CODE) {
+				prect(base - 1, ty, base + PS(PAPER_LINE) + 1, ty + lhp, sy, sh, P_CODEBG);
+				size_t q = lines[s.l].from.p, e = line_end(q);
+				int x4 = 0, run = -1;
+				for (; q <= e; q++) {
+					bool ink = q < e && at(q) != ' ' && at(q) != '\t';
+					if (ink && run < 0) run = x4;
+					if (!ink && run >= 0) { prect(lx + PS(run / 4), b0, lx + PS(x4 / 4) + 1, b1, sy, sh, P_CODE); run = -1; }
+					if (q < e) x4 += adv4(&rfont_mono, (unsigned char)at(q));
+				}
+			} else {
+				if (lb.kind == B_QUOTE)
+					for (int d = 0; d < lb.level; d++) prect(base + PS(12 * d), ty, base + PS(12 * d) + 1, ty + lhp, sy, sh, P_BAR);
+				if (lb.kind == B_ITEM && s.l == 0) prect(lx - 4, b0, lx - 2, b1, sy, sh, P_TEXT);
+				cursor_t c = lines[s.l].from, stop = line_stop(s.l);
+				int x4 = 0, run = -1, run_st = 0;
+				for (;;) {
+					cursor_t was = c;
+					int st = 0;
+					unsigned cp = was.p < stop.p ? next_ch(&c, &st) : 0;
+					bool ink = cp && cp != ' ';
+					if (run >= 0 && (!ink || st != run_st)) {	/* the end of a run of one style */
+						uint16_t col = lb.kind == B_HEAD ? P_HEAD : (run_st & LINK) ? P_LINK : (run_st & F_CODE) ? P_CODE
+						             : (run_st & F_BOLD) ? P_BOLD : (run_st & F_ITAL) ? P_ITAL : P_TEXT;
+						int r0 = b0, r1 = b1;
+						if (run_st & F_BOLD && lb.kind != B_HEAD) r0--;
+						prect(lx + PS(run / 4), r0, lx + PS(x4 / 4) + 1, r1, sy, sh, col);
+						run = -1;
+					}
+					if (!cp) break;
+					if (ink && run < 0) { run = x4; run_st = st; }
+					x4 += adv4(face(&lb, st), cp);
+				}
+			}
+		}
+		y += lh + (last ? gap_after(&lb) : 0);
+		if (!down(&s)) break;
+	}
+}
+
+static void draw_page(int p)
+{
+	for (int sy = 0; sy < TEXT_H; sy += 32) {
+		int sh = TEXT_H - sy < 32 ? TEXT_H - sy : 32;
+		draw_page_strip(p, sy, sh);
+		ed_blit(0, sy, W, sh, px);
+	}
+}
+
 size_t reader_run(size_t pos, const char *name)
 {
 	n_ = doc_len();
@@ -657,10 +803,55 @@ size_t reader_run(size_t pos, const char *name)
 			starts = NULL;
 			return back;
 		}
-		case 'p': case 'P':
-			footer("Page view isn't here yet", "");
-			ed_key_wait(1500);
+		case 'p': case 'P': {		/* page view, until P again or Esc */
+			footer("Working out the pages...", "");
+			paper = true;
+			laid_out = -1;
+			if (!paginate()) {
+				paper = false;
+				laid_out = -1;
+				footer("Not enough memory for page view", "");
+				ed_key_wait(1500);
+				break;
+			}
+			int pg = page_of(top);
+			bool leave = false;
+			for (;;) {
+				draw_page(pg);
+				char l[40];
+				snprintf(l, sizeof l, "Page %d of %d", pg + 1, n_pages);
+				footer(l, "P reading   Esc back");
+				int k2 = ed_key_wait(-1);
+				if (k2 == K_PGDN || k2 == K_DOWN || k2 == K_RIGHT || k2 == ' ' || k2 == CTRL('C') || k2 == CTRL('X')) { if (pg + 1 < n_pages) pg++; }
+				else if (k2 == K_PGUP || k2 == K_UP || k2 == K_LEFT || k2 == CTRL('R') || k2 == CTRL('E')) { if (pg > 0) pg--; }
+				else if (k2 == K_HOME) pg = 0;
+				else if (k2 == K_END) pg = n_pages - 1;
+				else if (k2 == 'p' || k2 == 'P') break;
+				else if (k2 == K_ESC || k2 == K_ENTER || k2 == CTRL('O') || k2 == 'q' || k2 == 'Q') { leave = true; break; }
+				else if (k2 == K_SHOT) {
+					char info[64];
+					snprintf(info, sizeof info, "page view, page %d of %d\n", pg + 1, n_pages);
+					const char *nm = ed_screenshot_pixels(info);
+					footer(nm ? "Screenshot saved:" : "The screenshot failed", nm ? nm : "");
+					ed_key_wait(1500);
+				}
+			}
+			top = pages[pg];		/* the reading view carries on from the page's top */
+			paper = false;
+			laid_out = -1;
+			free(pages);
+			pages = NULL;
+			if (leave) {
+				size_t back = starts[top.b];
+				free(starts);
+				starts = NULL;
+				return back;
+			}
+			/* (a page's first line in the reading view is a line of the
+			   same block, but the lines are wider there: start the block) */
+			top.l = 0;
 			break;
+		}
 		case K_SHOT: {
 			char info[128];
 			snprintf(info, sizeof info, "reading view, block %d of %d, line %d\n",
