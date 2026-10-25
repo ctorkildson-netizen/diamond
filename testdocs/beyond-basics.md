@@ -16,7 +16,9 @@ After the fence, **this is bold** again.
 
 ## A picture
 
-![a photo](photo.jpg) is shown as typed, not as a link.
+Diamond doesn't show pictures, and it isn't a web browser: it can't open a link or fetch anything from the web. A picture's Markdown is shown as typed:
+
+![a photo](photo.jpg)
 
 ## A table
 

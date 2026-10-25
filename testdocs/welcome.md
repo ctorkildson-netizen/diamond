@@ -77,7 +77,7 @@ A line starting with `#` and a space is a heading; `##` a smaller one, and so on
 
 **^OP** opens the reading view: the document in proportional type, with real bold and italic, headings in their sizes, and the lists, quotations and links laid out. **^OV** opens page view, which shows each page as it would print, on Letter paper with one-inch margins. In either, P switches to the other, and Esc goes back to editing.
 
-A link looks like this in the reading view: [the PicoCalc forum](https://forum.clockworkpi.com/).
+A link looks like this in the reading view: [the PicoCalc forum](https://forum.clockworkpi.com/). Diamond only shows a link; it isn't a web browser, so it can't open one. It doesn't show pictures either: a picture's Markdown is shown as typed.
 
 ## Saving, and the rest
 
