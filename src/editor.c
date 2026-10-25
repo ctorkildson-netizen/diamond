@@ -1098,10 +1098,11 @@ static const char *const o_menu[] = {
 	"",
 	"D  show or hide the Markdown marks",
 	"P  the reading view: the document as it reads",
+	"V  page view: the pages as they'd print",
 	"",
 	"(with Ctrl or without)",
 };
-#define O_MENU_LINES 6
+#define O_MENU_LINES 7
 static const char *const p_menu[] = {
 	"^P  bold and italic: then one of these keys",
 	"",
@@ -1146,7 +1147,7 @@ static const char *const keys_help[] = {
 	"^PB ^PY       bold, italic (the block, or what's typed)",
 	"^P Space      back to plain text (at the end of bold)",
 	"^OD           show the Markdown marks (** _ # `)",
-	"^OP           the reading view (Esc comes back)",
+	"^OP ^OV       the reading view; page view (Esc comes back)",
 	"^K0..^K9      set a place marker; ^Q0..^Q9 go there",
 	"^QF ^QA ^L    find; find and replace; again",
 	"^JH           help level: 3 shows the most",
@@ -1551,8 +1552,8 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 			break;
 		case CTRL('O'): {
 			int o = second_key("^O", o_menu, O_MENU_LINES);
-			if (o == 'P') {		/* the reading view (WordStar 5's ^OP: preview) */
-				size_t back = reader_run(E.cur, base_name(E.path));
+			if (o == 'P' || o == 'V') {	/* the reading view, page view (WordStar 5's ^OP: preview) */
+				size_t back = reader_run(E.cur, base_name(E.path), o == 'V');
 				ed_redraw();
 				if (back > E.cur || back < para_start(E.cur)) {	/* it moved on: go there */
 					E.cur = back;

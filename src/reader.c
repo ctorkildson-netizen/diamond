@@ -755,7 +755,7 @@ static void draw_page(int p)
 	}
 }
 
-size_t reader_run(size_t pos, const char *name)
+size_t reader_run(size_t pos, const char *name, bool page_view)
 {
 	n_ = doc_len();
 	laid_out = -1;
@@ -768,12 +768,17 @@ size_t reader_run(size_t pos, const char *name)
 	spot_t top = { 0, 0 };
 	for (int i = 0; i < n_blocks && starts[i] <= pos; i++) top.b = i;
 	for (;;) {
-		bool end = draw_screen(top);
-		char r[32];
-		int pct = n_blocks > 1 ? (int)((long)top.b * 100 / (n_blocks - 1)) : 100;
-		snprintf(r, sizeof r, "%d%%", end ? 100 : pct);
-		footer("Esc back   P page view", r);
-		int k = ed_key_wait(-1);
+		int k = 'P';
+		bool end = false;
+		if (!page_view) {
+			end = draw_screen(top);
+			char r[32];
+			int pct = n_blocks > 1 ? (int)((long)top.b * 100 / (n_blocks - 1)) : 100;
+			snprintf(r, sizeof r, "%d%%", end ? 100 : pct);
+			footer("Esc back   P page view", r);
+			k = ed_key_wait(-1);
+		}
+		page_view = false;	/* (^OV: straight into page view, once) */
 		int rows = screenful(top);
 		switch (k) {
 		case K_DOWN: case CTRL('X'): if (!end) down(&top); break;
