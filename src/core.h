@@ -12,6 +12,8 @@ size_t doc_len(void);
 char doc_at(size_t i);
 /* what Markdown makes of byte i (the F_ flags below) */
 uint8_t doc_fmt(size_t i);
+/* a plain text file (not Markdown): nothing in it is formatting */
+bool doc_plain(void);
 
 enum { F_HIDDEN = 1, F_BOLD = 2, F_ITAL = 4, F_CODE = 8, F_OPEN = 16 /* an opening mark */, F_HEAD = 32 /* x level */ };
 #define F_LINK F_OPEN		/* on a shown byte: the text of a link */

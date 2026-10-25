@@ -66,6 +66,8 @@ static struct {
 	size_t kill_pos;	/* where that deletion was */
 	unsigned edits;		/* counts changes to the text (for the format cache) */
 	bool marks;		/* ^OD: show the Markdown marks */
+	bool plain;		/* a plain text file (.txt): no Markdown at all
+				   (WordStar's "non-document" mode) */
 	int pend;		/* ^PB/^PY with nothing marked: the next character typed */
 	int carry;		/* a space typed at the end of bold went after its marks;
 				   the next letter takes them along (still bold): the style */
@@ -311,7 +313,7 @@ static void parse_para(size_t ps, size_t n)
 /* the formatting of byte i */
 static uint8_t fmt(size_t i)
 {
-	if (i >= len()) return 0;
+	if (i >= len() || E.plain) return 0;
 	if (f_start == (size_t)-1 || f_edits != E.edits || i < f_start || i >= f_start + f_len) {
 		size_t ps = i, pe = i;
 		while (ps > 0 && at(ps - 1) != '\n') ps--;
@@ -329,6 +331,19 @@ static uint8_t fmt(size_t i)
 size_t doc_len(void) { return len(); }
 char doc_at(size_t i) { return at(i); }
 uint8_t doc_fmt(size_t i) { return fmt(i); }
+bool doc_plain(void) { return E.plain; }
+
+/* Markdown is .md and .markdown; anything else (.txt) is plain text */
+static bool is_markdown(const char *path)
+{
+	const char *dot = strrchr(path, '.'), *slash = strrchr(path, '/');
+	if (!dot || (slash && dot < slash)) return false;
+	char e[10];
+	size_t i = 0;
+	for (dot++; *dot && i < sizeof e - 1; dot++) e[i++] = (char)(*dot | 0x20);
+	e[i] = 0;
+	return !strcmp(e, "md") || !strcmp(e, "markdown");
+}
 
 /* does byte i take a column on screen? */
 static bool shown(size_t i)
@@ -1473,6 +1488,7 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 {
 	memset(&E, 0, sizeof E);
 	E.path = path;
+	E.plain = !is_markdown(path);
 	E.help = help_level < 0 ? 0 : help_level > 3 ? 3 : help_level;
 
 	/* CR LF line ends (Windows) become LF, and go back that way on saving */
@@ -1657,6 +1673,7 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 				}
 				break;
 			}
+			if (o == 'D' && E.plain) { say(" Plain text: everything is shown just as it is"); break; }
 			if (o == 'D') {
 				E.marks = !E.marks;
 				ln_anchor = 0;		/* the lines wrap differently now */
@@ -1667,6 +1684,10 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 		}
 		case CTRL('P'): {
 			int p = second_key("^P", p_menu, P_MENU_LINES);
+			if (E.plain && (p == 'B' || p == 'Y' || p == ' ')) {
+				say(" Plain text has no bold or italic (save as .md for those)");
+				break;
+			}
 			int f = p == 'B' ? F_BOLD : p == 'Y' ? F_ITAL : 0;
 			if (p == ' ') {		/* back to plain: out past any closing marks here */
 				E.pend = 0;

@@ -55,6 +55,7 @@ static int line_kind(size_t p, size_t *text, int *level, char *bullet)
 	*text = q;
 	*level = 0;
 	if (bullet) bullet[0] = 0;
+	if (doc_plain()) { *text = p; return B_PARA; }	/* plain text: every line as it is, blank ones too */
 	if (q == e) return B_BLANK;
 	char c = at(q);
 	if (ind < 4 && c == '#') {
@@ -126,6 +127,7 @@ static void block_at(size_t p, block_t *b)
 	/* a paragraph, item or quotation goes on over the lines after it
 	   until a blank line or a line that starts something else */
 	size_t q = e < n_ ? e + 1 : e;
+	if (doc_plain()) { b->end = q; return; }	/* (in plain text, every line is its own) */
 	while (q < n_) {
 		size_t t;
 		int l, k = line_kind(q, &t, &l, NULL);
@@ -229,7 +231,7 @@ static unsigned next_ch(cursor_t *c, int *style)
 		}
 		uint8_t f = p < n_ ? doc_fmt(p) : 0;
 		if (f & F_HIDDEN) { c->p = p + 1; continue; }
-		if (ch == '[' && !(f & F_CODE) && !c->link_end) {
+		if (ch == '[' && !(f & F_CODE) && !c->link_end && !doc_plain()) {
 			size_t te, end;
 			if (link_at(p, &te, &end)) { c->link_end = te; c->skip_to = end; c->p = p + 1; continue; }
 		}
@@ -252,7 +254,7 @@ static unsigned next_ch(cursor_t *c, int *style)
 static const rfont_t *face(const block_t *b, int style)
 {
 	if (b->kind == B_HEAD) return b->level == 1 ? &rfont_h1 : b->level == 2 ? &rfont_h2 : &rfont_h3;
-	if (b->kind == B_CODE || (style & F_CODE)) return (&rfont_mono);
+	if (b->kind == B_CODE || (style & F_CODE) || doc_plain()) return (&rfont_mono);	/* (plain text keeps its columns) */
 	if ((style & (F_BOLD | F_ITAL)) == (F_BOLD | F_ITAL)) return (&rfont_bolditalic);
 	if (style & F_BOLD) return (&rfont_bold);
 	if (style & F_ITAL) return (&rfont_italic);
@@ -317,6 +319,7 @@ static int line_height(const block_t *b)
 /* the space after a block */
 static int gap_after(const block_t *b)
 {
+	if (doc_plain()) return 0;		/* (plain lines follow one another, as in the file) */
 	if (b->kind == B_ITEM) return 3;
 	if (b->kind == B_HEAD) return 2;
 	return 7;
@@ -350,7 +353,7 @@ static void lay_out(int bi)
 	cursor_t c = { lb.text, 0, 0 };
 	for (;;) {
 		/* one line: words while they fit */
-		while (1) {		/* no spaces at the start of a line */
+		while (!(doc_plain() && c.p == lb.text)) {	/* no spaces at the start of a line (but a plain line's own indent stays) */
 			cursor_t s = c;
 			int st;
 			unsigned ch = next_ch(&s, &st);

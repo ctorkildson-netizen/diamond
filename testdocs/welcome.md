@@ -57,6 +57,8 @@ Diamond saves documents in Markdown, a plain-text format almost everything can r
 - **^PB** makes what you type next **bold**, and **^PY** *italic*; **^P Space** goes back to plain text.
 - With a block marked, ^PB and ^PY make the block bold or italic, or plain again if it was already.
 
+All of this is for Markdown files, ending in `.md`. A file ending in `.txt` is plain text: nothing in it is formatting, every character shows just as typed, and the reading view shows it in a typewriter face so its columns line up. Use `.txt` for lists of figures, code, logs, or anything full of asterisks.
+
 Some examples to look at with ^OD: **bold words**, *italic words*, ***both together***, and `code`, which is shown as written: `**not bold**`. Marks that aren't formatting are left alone: 2 * 3 * 4, snake_case_name, and \*escaped stars\*.
 
 ## Headings, lists and quotations
@@ -98,6 +100,7 @@ Diamond follows WordStar 4 wherever it can, so if you know WordStar, your finger
 - **^PB and ^PY work on a block**, and ^P Space returns to plain text; in WordStar they put a code at the cursor.
 - **The views are new.** WordStar 5 added a preview on ^OP; Diamond's ^OP is a reading view, and ^OV its page view.
 - **No dot commands** (.HE, .FO, .PA and the rest): headings and the rest come from Markdown.
+- **Plain text by the file's name.** WordStar opened program files and plain text in its non-document mode (N at the opening menu); Diamond does the same for any file that doesn't end in `.md`.
 - **No file commands in ^K** yet (^KR to read in a file, ^KW to write a block out, ^KE, ^KJ, ^KF). The list of documents does that work for now.
 - **Esc cancels** a question; in WordStar ^U did that too.
 

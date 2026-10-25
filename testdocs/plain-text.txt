@@ -1,0 +1,6 @@
+Totals: 2*3*4 and **not bold** here
+# not a heading
+    indented code_like_name = a*b*c;
+- not a list
+
+A long plain line of text that goes on and on, long enough to wrap onto another line in the reading view.
