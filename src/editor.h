@@ -24,6 +24,7 @@ enum {
 	A_CODE,			/* `code` */
 	A_MARK,			/* a Markdown mark, when ^OD shows them */
 	A_LINK,			/* a link's text */
+	A_LINEMARK,		/* a quotation's >, drawn as a bar; a list's -, as a bullet */
 	A_INBLOCK = 0x40,	/* added to a text style: inside the marked block */
 	A_CURSOR = 0x80		/* added to any of them: the cursor is here */
 };

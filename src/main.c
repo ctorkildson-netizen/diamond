@@ -153,6 +153,7 @@ static const struct { uint16_t fg, bg; uint8_t look; } colours[] = {
 	[A_CODE]   = { 0x9772, 0x2104 },		/* green on dark grey */
 	[A_MARK]   = { 0x632C, 0x0000 },		/* dim grey: a Markdown mark */
 	[A_LINK]   = { 0x7D5F, 0x0000, UNDER },	/* blue, underlined */
+	[A_LINEMARK] = { 0x9CD3, 0x0000 },		/* grey: drawn as a bar or a bullet */
 };
 
 static screen_t shown;
@@ -171,6 +172,9 @@ static void render_row(const screen_t *s, int r)
 		if (a & A_INBLOCK) { fg = colours[A_BLOCK].fg; bg = colours[A_BLOCK].bg; }	/* the block's colours, the text's shapes */
 		if (a & A_CURSOR) { uint16_t t = fg; fg = bg ? bg : 0x0000; bg = t; }
 		const uint8_t *g = &font_5x10.glyphs[(uint8_t)s->ch[r][c] * GLYPH_HEIGHT];
+		static const uint8_t bar[GLYPH_HEIGHT] = { 8, 8, 8, 8, 8, 8, 8, 8, 8, 8 };	/* a quotation's > */
+		static const uint8_t dot[GLYPH_HEIGHT] = { 0, 0, 0, 0, 12, 12, 0, 0, 0, 0 };	/* a list item's - */
+		if ((a & 0x3F) == A_LINEMARK) g = s->ch[r][c] == '>' ? bar : dot;
 		/* letters whose strokes sit one pixel apart (M, W, X, m, w...) would
 		   run together if thickened, so they stay as they are (bold still
 		   shows in its brighter colour) */

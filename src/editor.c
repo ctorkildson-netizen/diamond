@@ -187,6 +187,9 @@ static void delete(size_t pos, size_t n, bool keep)
 #define F_W1 32
 #define F_W2 64
 #define WIDTH(f) ((f) & F_W2 ? 2 : 1)
+/* on a shown byte: the > of a quotation or the - * + of a list item, drawn
+   as a bar or a bullet (a heading level that can't be) */
+#define F_LINEMARK (7 * F_HEAD)
 #define PARA_MAX 8192		/* longer paragraphs are shown as they are */
 
 static uint8_t finfo[PARA_MAX];
@@ -212,6 +215,23 @@ static void parse_para(size_t ps, size_t n)
 		i = level + 1;
 	}
 	size_t body = i;
+
+	/* a quotation's >s, or a list item's -, * or + */
+	if (!level) {
+		size_t q = 0;
+		while (q < n && q < 3 && C(q) == ' ') q++;
+		if (C(q) == '>')
+			while (q < n && C(q) == '>') {
+				finfo[q] |= F_LINEMARK;
+				q++;
+				while (q < n && C(q) == ' ') q++;
+			}
+		else {
+			q = 0;
+			while (q < n && C(q) == ' ') q++;
+			if ((C(q) == '-' || C(q) == '*' || C(q) == '+') && C(q + 1) == ' ') finfo[q] |= F_LINEMARK;
+		}
+	}
 
 	/* code spans first: nothing inside them is a mark */
 	for (size_t k = body; k < n; k++) {
@@ -589,6 +609,7 @@ static int style_of(uint8_t f)
 {
 	if (E.marks && (f & F_MARK)) return A_MARK;
 	if (!(f & F_HIDDEN) && (f & F_LINK)) return A_LINK;
+	if (!(f & F_HIDDEN) && (f & F_LINEMARK) == F_LINEMARK) return E.marks ? A_MARK : A_LINEMARK;
 	if (f >= F_HEAD) return f < 2 * F_HEAD ? A_H1 : f < 3 * F_HEAD ? A_H2 : A_H3;
 	if (f & F_CODE) return A_CODE;
 	if ((f & (F_BOLD | F_ITAL)) == (F_BOLD | F_ITAL)) return A_BOLDITALIC;
