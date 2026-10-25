@@ -1237,6 +1237,7 @@ static const char *const j_menu[] = {
 static const char *const keys_help[] = {
 	"Diamond: the keys",
 	"",
+	"Ctrl alone, then a letter: the same as Ctrl+letter",
 	"^E ^X ^S ^D   up, down, left, right (arrows too)",
 	"^A ^F         a word left, a word right",
 	"^R ^C         a screen up, down (PgUp, PgDn too)",

@@ -28,6 +28,11 @@ volatile bool user_interrupt;	/* the keyboard driver sets it on Brk */
 static int kq[KQ];
 static unsigned kq_head, kq_tail;
 static bool m_ctrl, m_shift, m_alt;
+/* Sticky Ctrl: Ctrl pressed and let go on its own makes the next letter a
+   Ctrl+letter, so no two keys need holding at once (the one Ctrl key is in
+   a corner, and the other hand is holding the PicoCalc) */
+static bool ctrl_used, sticky;
+static void show_sticky(bool on);
 static uint8_t held;			/* the key held down (0: none) */
 static int held_key;			/* what it gives */
 static absolute_time_t next_repeat;
@@ -63,7 +68,7 @@ static int translate(uint8_t c)
 	case KEY_F5: return K_SHOT;		/* with Shift or without */
 	}
 	if (isalpha(c)) {
-		if (m_ctrl) return c & 0x1F;
+		if (m_ctrl || sticky) return c & 0x1F;
 		if (m_shift) return toupper(c);
 		return c;
 	}
@@ -80,13 +85,21 @@ static void kbd_poll(void)
 		if (state == 0) break;
 		bool down = state == KEY_STATE_PRESSED, up = state == KEY_STATE_RELEASED;
 		switch (code) {
-		case KEY_MOD_CTRL: if (down || up) m_ctrl = down; continue;
+		case KEY_MOD_CTRL:
+			if (down) { m_ctrl = true; ctrl_used = false; }
+			else if (up) {
+				m_ctrl = false;
+				if (!ctrl_used) { sticky = !sticky; show_sticky(sticky); }	/* a tap: on, or off again */
+			}
+			continue;
 		case KEY_MOD_SHL: case KEY_MOD_SHR: if (down || up) m_shift = down; continue;
 		case KEY_MOD_ALT: if (down || up) m_alt = down; continue;
 		case KEY_MOD_SYM: continue;
 		}
 		if (down) {
+			if (m_ctrl) ctrl_used = true;
 			int k = translate(code);
+			if (sticky) { sticky = false; show_sticky(false); }	/* used, or cancelled by another key */
 			if (k < 0) continue;
 			kq_put(k);
 			held = code;
@@ -144,6 +157,7 @@ static const struct { uint16_t fg, bg; uint8_t look; } colours[] = {
 
 static screen_t shown;
 static bool shown_valid;
+static bool pixels;			/* the reading view has the screen */
 
 /* one row of cells as pixels */
 static uint16_t px[SCR_COLS * 5 * GLYPH_HEIGHT];
@@ -318,13 +332,29 @@ const char *ed_screenshot(const screen_t *s, const char *info)
 
 void ed_blit(int x, int y, int w, int h, const uint16_t *px)
 {
+	pixels = true;
 	lcd_blit((uint16_t *)px, (uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h);
 }
 
 void ed_redraw(void) { shown_valid = false; }
 
+/* "Ctrl" at the right of the status line while a tapped Ctrl waits */
+static void show_sticky(bool on)
+{
+	if (pixels || !shown_valid) return;
+	static screen_t tmp;
+	tmp = shown;
+	if (on) {
+		const char *w = "Ctrl";
+		for (int i = 0; w[i]; i++) { tmp.ch[0][59 + i] = w[i]; tmp.at[0][59 + i] = A_MSG; }
+	}
+	draw_row(&tmp, 0);
+	shown.ch[0][59] = on ? 0 : shown.ch[0][59];	/* (the next ed_show draws the row afresh) */
+}
+
 void ed_show(const screen_t *s)
 {
+	pixels = false;
 	for (int r = 0; r < SCR_ROWS; r++)
 		if (!shown_valid || memcmp(s->ch[r], shown.ch[r], SCR_COLS) ||
 		    memcmp(s->at[r], shown.at[r], SCR_COLS))

@@ -2,7 +2,7 @@
 
 Diamond is a word processor for the PicoCalc, with WordStar's keys. This document is a short tutorial: read it in Diamond, and try each thing as you go. Nothing you do here can hurt it. Close it with **^KQ** and answer Y to leave it as it was.
 
-A note on the keys: **^S** means hold Ctrl and press S. **^KS** means Ctrl+K, then S. After the first key you can press the second one with Ctrl or without it, so ^K^S and ^KS are the same.
+A note on the keys: **^S** means hold Ctrl and press S. **^KS** means Ctrl+K, then S. After the first key you can press the second one with Ctrl or without it, so ^K^S and ^KS are the same. And you never need to hold two keys at once: tap Ctrl on its own and let go ("Ctrl" shows at the top right), and the next letter you press counts as Ctrl and that letter.
 
 ## Moving around
 
