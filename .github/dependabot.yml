@@ -1,0 +1,8 @@
+# New releases of the submodules (Blair Leduc's drivers and shell, and
+# picocalc-extras) arrive as pull requests.
+version: 2
+updates:
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "weekly"

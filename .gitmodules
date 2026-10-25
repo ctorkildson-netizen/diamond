@@ -1,0 +1,10 @@
+[submodule "modules/picocalc-extras"]
+	path = modules/picocalc-extras
+	url = https://github.com/ctorkildson-netizen/picocalc-extras
+[submodule "modules/picocalc-shell"]
+	path = modules/picocalc-shell
+	url = https://github.com/BlairLeduc/picocalc-shell
+[submodule "modules/picocalc-text-starter"]
+	path = modules/picocalc-text-starter
+	url = https://github.com/ctorkildson-netizen/picocalc-text-starter
+	branch = diamond-dev
