@@ -200,6 +200,46 @@ static bool f_long;		/* the paragraph is too long: no formatting */
 static bool alnum(char c) { return (c >= '0' && c <= '9') || ((c | 0x20) >= 'a' && (c | 0x20) <= 'z') || (c & 0x80); }
 static bool space(char c) { return c == ' ' || c == '\t' || c == '\n'; }
 
+/* fenced code: the lines from a ``` line to the next, inclusive, are code.
+   Where the fence lines are is worked out again after each change. */
+#define FENCE_MAX 1024		/* past this many, the rest isn't seen as code */
+static size_t fences[FENCE_MAX];
+static int n_fences;
+static unsigned fence_edits = (unsigned)-1;
+
+static bool fence_line(size_t p)	/* p: a line start */
+{
+	size_t n = len();
+	for (int ind = 0; ind < 3 && p < n && at(p) == ' '; ind++) p++;
+	return p + 2 < n && at(p) == '`' && at(p + 1) == '`' && at(p + 2) == '`';
+}
+
+static void find_fences(void)
+{
+	fence_edits = E.edits;
+	n_fences = 0;
+	size_t n = len(), p = 0;
+	while (p < n && n_fences < FENCE_MAX) {
+		if (fence_line(p)) fences[n_fences++] = p;
+		/* the next line: memchr over each side of the gap */
+		const char *nl = NULL;
+		if (p < gs) { nl = memchr(buf + p, '\n', gs - p); if (nl) { p = (size_t)(nl - buf) + 1; continue; } p = gs; }
+		nl = memchr(buf + ge + (p - gs), '\n', cap - ge - (p - gs));
+		if (!nl) break;
+		p = (size_t)(nl - buf) - (ge - gs) + 1;
+	}
+}
+
+/* is the line starting at ps fenced code (or a fence)? */
+static bool in_fence(size_t ps)
+{
+	if (fence_edits != E.edits) find_fences();
+	int lo = 0, hi = n_fences;		/* how many fences start at or before ps */
+	while (lo < hi) { int m = (lo + hi) / 2; if (fences[m] <= ps) lo = m + 1; else hi = m; }
+	if (lo && fences[lo - 1] == ps) return true;	/* a fence itself */
+	return lo % 2 == 1;				/* after an opening one */
+}
+
 static void parse_para(size_t ps, size_t n)
 {
 	memset(finfo, 0, n);
@@ -258,6 +298,7 @@ static void parse_para(size_t ps, size_t n)
 	for (size_t k = body; k < n; k++) {
 		if (C(k) != '[' || (finfo[k] & (F_CODE | F_HIDDEN))) continue;
 		if (k > body && C(k - 1) == '\\') continue;		/* \[ is a plain [ */
+		if (k > 0 && C(k - 1) == '!' && !(k > 1 && C(k - 2) == '\\')) continue;	/* ![...](...) is a picture: shown as typed */
 		size_t j = k + 1;
 		int depth = 0;
 		while (j < n && !(finfo[j] & F_CODE)) {
@@ -342,7 +383,10 @@ static uint8_t fmt(size_t i)
 		f_len = pe - ps;
 		f_edits = E.edits;
 		f_long = f_len > PARA_MAX;
-		if (!f_long) parse_para(ps, f_len);
+		if (!f_long) {
+			if (in_fence(ps)) memset(finfo, F_CODE, f_len);
+			else parse_para(ps, f_len);
+		}
 		if (i >= pe) return 0;		/* the newline itself */
 	}
 	return f_long ? 0 : finfo[i - f_start];

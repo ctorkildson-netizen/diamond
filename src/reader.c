@@ -31,7 +31,7 @@ static const uint16_t C_BG = RGB(12, 12, 12), C_TEXT = RGB(225, 225, 225),
 
 /* ------------------------------------------------------------ blocks */
 
-enum { B_PARA, B_HEAD, B_ITEM, B_QUOTE, B_RULE, B_CODE, B_BLANK };
+enum { B_PARA, B_HEAD, B_ITEM, B_QUOTE, B_RULE, B_CODE, B_BLANK, B_TABLE };
 
 typedef struct {
 	size_t start, end;	/* its bytes, newline included */
@@ -74,6 +74,7 @@ static int line_kind(size_t p, size_t *text, int *level, char *bullet)
 		if (r == e && k >= 3) return B_RULE;
 	}
 	if (ind < 4 && c == '`' && at(q + 1) == '`' && at(q + 2) == '`') return B_CODE;
+	if (ind < 4 && c == '|') return B_TABLE;	/* a table's row: shown as typed */
 	if (ind < 4 && c == '>') {
 		size_t r = q;
 		while (at(r) == '>') { (*level)++; r = skip_sp(r + 1); }
@@ -124,6 +125,13 @@ static void block_at(size_t p, block_t *b)
 		b->end = q;
 		return;
 	}
+	if (b->kind == B_TABLE) {		/* the rows one after another */
+		size_t q = e < n_ ? e + 1 : e, t;
+		int l;
+		while (q < n_ && line_kind(q, &t, &l, NULL) == B_TABLE) { size_t qe = line_end(q); q = qe < n_ ? qe + 1 : qe; }
+		b->end = q;
+		return;
+	}
 	/* a paragraph, item or quotation goes on over the lines after it
 	   until a blank line or a line that starts something else */
 	size_t q = e < n_ ? e + 1 : e;
@@ -131,7 +139,7 @@ static void block_at(size_t p, block_t *b)
 	while (q < n_) {
 		size_t t;
 		int l, k = line_kind(q, &t, &l, NULL);
-		if (k == B_BLANK || k == B_HEAD || k == B_RULE || k == B_CODE || k == B_ITEM) break;
+		if (k == B_BLANK || k == B_HEAD || k == B_RULE || k == B_CODE || k == B_ITEM || k == B_TABLE) break;
 		if (k == B_QUOTE && b->kind != B_QUOTE) break;
 		if (k != B_QUOTE && b->kind == B_QUOTE) break;
 		size_t qe = line_end(q);
@@ -204,6 +212,7 @@ static bool link_at(size_t p, size_t *text_end, size_t *end)
 		else if (at(q) == ']') { if (!depth) break; depth--; }
 		q++;
 	}
+	if (p > 0 && at(p - 1) == '!' && !(p > 1 && at(p - 2) == '\\')) return false;	/* a picture */
 	if (q >= e || at(q) != ']' || at(q + 1) != '(') return false;
 	size_t r = q + 2;
 	while (r < e && at(r) != ')' && at(r) != '\n' && at(r) != ' ') r++;
@@ -254,7 +263,7 @@ static unsigned next_ch(cursor_t *c, int *style)
 static const rfont_t *face(const block_t *b, int style)
 {
 	if (b->kind == B_HEAD) return b->level == 1 ? &rfont_h1 : b->level == 2 ? &rfont_h2 : &rfont_h3;
-	if (b->kind == B_CODE || (style & F_CODE) || doc_plain()) return (&rfont_mono);	/* (plain text keeps its columns) */
+	if (b->kind == B_CODE || b->kind == B_TABLE || (style & F_CODE) || doc_plain()) return (&rfont_mono);	/* (plain text keeps its columns) */
 	if ((style & (F_BOLD | F_ITAL)) == (F_BOLD | F_ITAL)) return (&rfont_bolditalic);
 	if (style & F_BOLD) return (&rfont_bold);
 	if (style & F_ITAL) return (&rfont_italic);
@@ -335,12 +344,12 @@ static void lay_out(int bi)
 	n_lines = 0;
 	if (lb.kind == B_RULE) { n_lines = 1; return; }
 	int room4 = paper ? (PAPER_LINE - (left(&lb) - MARGIN)) * 4 : (W - MARGIN - left(&lb)) * 4;
-	if (lb.kind == B_CODE) {		/* code: one line for each, cut at the edge */
-		size_t q = line_end(lb.start) + 1;
+	if (lb.kind == B_CODE || lb.kind == B_TABLE) {	/* code, a table: one line for each, cut at the edge */
+		size_t q = lb.kind == B_TABLE ? lb.start : line_end(lb.start) + 1;
 		while (q < lb.end && n_lines < MAX_LINES) {
 			size_t t;
 			int l;
-			if (line_kind(q, &t, &l, NULL) == B_CODE) break;
+			if (lb.kind == B_CODE && line_kind(q, &t, &l, NULL) == B_CODE) break;
 			lines[n_lines].from.p = q;
 			lines[n_lines].from.link_end = 0;
 			lines[n_lines].width4 = 0;
@@ -511,7 +520,8 @@ static void draw_line(int li, int y, int lh)
 	}
 	uint16_t text = b->kind == B_HEAD ? (b->level == 1 ? C_H1 : b->level == 2 ? C_H2 : C_H3)
 	              : b->kind == B_CODE ? C_CODE : C_TEXT;
-	if (b->kind == B_CODE) {
+	if (b->kind == B_CODE || b->kind == B_TABLE) {
+		uint16_t fg = b->kind == B_CODE ? C_CODE : C_TEXT, bg = b->kind == B_CODE ? C_CODEBG : C_BG;
 		size_t p = lines[li].from.p, e = line_end(p);
 		for (; p < e; ) {
 			unsigned char ch = (unsigned char)at(p);
@@ -520,7 +530,7 @@ static void draw_line(int li, int y, int lh)
 			if (more) { cp = ch & (0x3F >> more); for (int k = 1; k <= more; k++) cp = cp << 6 | ((unsigned char)at(p + k) & 0x3F); }
 			p += 1 + more;
 			if (cp == '\t') cp = ' ';
-			draw_glyph((&rfont_mono), cp, x4, top, lh, C_CODE, C_CODEBG);
+			draw_glyph((&rfont_mono), cp, x4, top, lh, fg, bg);
 			x4 += adv4((&rfont_mono), cp);
 			if (x4 / 4 > W) break;
 		}
@@ -709,14 +719,14 @@ static void draw_page_strip(int p, int sy, int sh)
 			if (b1 <= b0) b1 = b0 + 1;
 			if (lb.kind == B_HEAD) { b0 = ty + lhp / 4; b1 = ty + lhp * 9 / 10; }
 			if (lb.kind == B_RULE) prect(base, ty + lhp / 2, base + PS(PAPER_LINE), ty + lhp / 2 + 1, sy, sh, P_RULE);
-			else if (lb.kind == B_CODE) {
-				prect(base - 1, ty, base + PS(PAPER_LINE) + 1, ty + lhp, sy, sh, P_CODEBG);
+			else if (lb.kind == B_CODE || lb.kind == B_TABLE) {
+				if (lb.kind == B_CODE) prect(base - 1, ty, base + PS(PAPER_LINE) + 1, ty + lhp, sy, sh, P_CODEBG);
 				size_t q = lines[s.l].from.p, e = line_end(q);
 				int x4 = 0, run = -1;
 				for (; q <= e; q++) {
 					bool ink = q < e && at(q) != ' ' && at(q) != '\t';
 					if (ink && run < 0) run = x4;
-					if (!ink && run >= 0) { prect(lx + PS(run / 4), b0, lx + PS(x4 / 4) + 1, b1, sy, sh, P_CODE); run = -1; }
+					if (!ink && run >= 0) { prect(lx + PS(run / 4), b0, lx + PS(x4 / 4) + 1, b1, sy, sh, lb.kind == B_CODE ? P_CODE : P_TEXT); run = -1; }
 					if (q < e) x4 += adv4(&rfont_mono, (unsigned char)at(q));
 				}
 			} else {
