@@ -1,6 +1,6 @@
 # Beyond the basics
 
-Markdown that Diamond doesn't format. Everything here should show just as typed, on the editing screen and in the reading view, except the fenced code, which is shown as code.
+Markdown beyond the basics: what Diamond does with fenced code and tables, and the things it leaves alone.
 
 ## Fenced code
 
@@ -25,11 +25,11 @@ After the fence, **this is bold** again.
 | welcome.md | 6 KB |
 | novel.md | 300 KB |
 
-In the reading view the rows keep their columns, in the typewriter face.
+The rows above aren't lined up as typed. On the editing screen they stay as typed; in the reading view the columns are lined up, in the typewriter face.
 
-## The rest
+## Not supported: shown as typed
 
-~~Strikethrough~~, <b>HTML</b>, https://example.com, and a task list:
+Diamond doesn't format any of these, so each should look exactly as typed, on the editing screen and in the reading view: ~~strikethrough~~, <b>HTML</b>, https://example.com (not made a link), and a task list:
 
 - [ ] not done
 - [x] done

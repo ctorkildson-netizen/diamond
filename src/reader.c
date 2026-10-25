@@ -334,6 +334,70 @@ static int gap_after(const block_t *b)
 	return 7;
 }
 
+/* a table's rows: the cells of the row at p, without the spaces around
+   them; returns how many */
+#define TCOLS 16
+static int tcolw[TCOLS], tcols;		/* the laid-out table's column widths, in characters */
+static bool t_sep;			/* (set by row_cells) the row is |---|---| */
+
+static int u8len(size_t a, size_t b)	/* characters in a..b */
+{
+	int k = 0;
+	for (size_t i = a; i < b; i++) k += ((unsigned char)at(i) & 0xC0) != 0x80;
+	return k;
+}
+
+static int row_cells(size_t p, size_t *cs, size_t *ce)
+{
+	size_t e = line_end(p), q = skip_sp(p);
+	if (q < e && at(q) == '|') q++;
+	int n = 0;
+	t_sep = true;
+	bool dash = false;
+	while (q < e && n < TCOLS) {
+		size_t a = q;
+		while (q < e && !(at(q) == '|' && !(q > a && at(q - 1) == '\\'))) q++;
+		size_t b = q;
+		while (a < b && at(a) == ' ') a++;
+		while (b > a && at(b - 1) == ' ') b--;
+		for (size_t i = a; i < b; i++) {
+			if (at(i) == '-') dash = true;
+			else if (at(i) != ':') t_sep = false;
+		}
+		if (q >= e && a == b) break;	/* nothing after the last | */
+		cs[n] = a, ce[n] = b, n++;
+		if (q < e) q++;
+	}
+	if (!dash) t_sep = false;
+	return n;
+}
+
+/* the line of a code block or table row at p, as it's shown: a code line
+   as it is, a table row with its cells padded out to the column widths */
+static size_t row_text(size_t p, char *out, size_t cap)
+{
+	size_t n = 0, e = line_end(p);
+	if (cb->kind != B_TABLE) {
+		for (; p < e && n < cap; p++) out[n++] = at(p);
+		return n;
+	}
+	size_t cs[TCOLS], ce[TCOLS];
+	int k = row_cells(p, cs, ce);
+	bool sep = t_sep;
+	#define PUT(c) do { if (n < cap) out[n++] = (c); } while (0)
+	PUT('|');
+	for (int i = 0; i < tcols; i++) {
+		PUT(sep ? '-' : ' ');
+		int w = 0;
+		if (i < k && !sep) { for (size_t j = cs[i]; j < ce[i]; j++) PUT(at(j)); w = u8len(cs[i], ce[i]); }
+		for (; w < tcolw[i]; w++) PUT(sep ? '-' : ' ');
+		PUT(sep ? '-' : ' ');
+		PUT('|');
+	}
+	#undef PUT
+	return n;
+}
+
 /* lay block bi out into lines[] */
 static void lay_out(int bi)
 {
@@ -357,6 +421,17 @@ static void lay_out(int bi)
 			q = line_end(q) + 1;
 		}
 		if (!n_lines) { lines[0].from.p = lb.end; n_lines = 1; }
+		if (lb.kind == B_TABLE) {	/* the widest cell in each column */
+			tcols = 0;
+			for (int i = 0; i < TCOLS; i++) tcolw[i] = 0;
+			for (int l = 0; l < n_lines; l++) {
+				size_t cs[TCOLS], ce[TCOLS];
+				int k = row_cells(lines[l].from.p, cs, ce);
+				if (k > tcols) tcols = k;
+				if (t_sep) continue;
+				for (int i = 0; i < k; i++) { int w = u8len(cs[i], ce[i]); if (w > tcolw[i]) tcolw[i] = w; }
+			}
+		}
 		return;
 	}
 	cursor_t c = { lb.text, 0, 0 };
@@ -522,12 +597,14 @@ static void draw_line(int li, int y, int lh)
 	              : b->kind == B_CODE ? C_CODE : C_TEXT;
 	if (b->kind == B_CODE || b->kind == B_TABLE) {
 		uint16_t fg = b->kind == B_CODE ? C_CODE : C_TEXT, bg = b->kind == B_CODE ? C_CODEBG : C_BG;
-		size_t p = lines[li].from.p, e = line_end(p);
+		static char row[512];
+		size_t p = 0, e = row_text(lines[li].from.p, row, sizeof row);
 		for (; p < e; ) {
-			unsigned char ch = (unsigned char)at(p);
+			unsigned char ch = (unsigned char)row[p];
 			unsigned cp = ch;
 			int more = ch >= 0xF0 ? 3 : ch >= 0xE0 ? 2 : ch >= 0xC0 ? 1 : 0;
-			if (more) { cp = ch & (0x3F >> more); for (int k = 1; k <= more; k++) cp = cp << 6 | ((unsigned char)at(p + k) & 0x3F); }
+			if (p + more >= e) more = 0;
+			if (more) { cp = ch & (0x3F >> more); for (int k = 1; k <= more; k++) cp = cp << 6 | ((unsigned char)row[p + k] & 0x3F); }
 			p += 1 + more;
 			if (cp == '\t') cp = ' ';
 			draw_glyph((&rfont_mono), cp, x4, top, lh, fg, bg);
@@ -721,13 +798,14 @@ static void draw_page_strip(int p, int sy, int sh)
 			if (lb.kind == B_RULE) prect(base, ty + lhp / 2, base + PS(PAPER_LINE), ty + lhp / 2 + 1, sy, sh, P_RULE);
 			else if (lb.kind == B_CODE || lb.kind == B_TABLE) {
 				if (lb.kind == B_CODE) prect(base - 1, ty, base + PS(PAPER_LINE) + 1, ty + lhp, sy, sh, P_CODEBG);
-				size_t q = lines[s.l].from.p, e = line_end(q);
+				static char row[512];
+				size_t q = 0, e = row_text(lines[s.l].from.p, row, sizeof row);
 				int x4 = 0, run = -1;
 				for (; q <= e; q++) {
-					bool ink = q < e && at(q) != ' ' && at(q) != '\t';
+					bool ink = q < e && row[q] != ' ' && row[q] != '\t';
 					if (ink && run < 0) run = x4;
 					if (!ink && run >= 0) { prect(lx + PS(run / 4), b0, lx + PS(x4 / 4) + 1, b1, sy, sh, lb.kind == B_CODE ? P_CODE : P_TEXT); run = -1; }
-					if (q < e) x4 += adv4(&rfont_mono, (unsigned char)at(q));
+					if (q < e && ((unsigned char)row[q] & 0xC0) != 0x80) x4 += adv4(&rfont_mono, (unsigned char)row[q] < 0x80 ? (unsigned char)row[q] : 'x');
 				}
 			} else {
 				if (lb.kind == B_QUOTE)
