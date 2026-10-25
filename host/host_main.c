@@ -60,6 +60,8 @@ void ed_blit(int x, int y, int w, int h, const uint16_t *px)
 			if (x + i < SCR_PX && y + j < SCR_PX) fb[(y + j) * SCR_PX + x + i] = px[j * w + i];
 }
 void ed_redraw(void) {}
+static void write_pic(void);
+const char *ed_screenshot_pixels(const char *info) { printf("%s", info); write_pic(); return "host-pic"; }
 static void write_pic(void)
 {
 	char name[32];

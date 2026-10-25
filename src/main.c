@@ -180,6 +180,64 @@ static void put_le(uint8_t *p, uint32_t v, int n) { for (int i = 0; i < n; i++) 
 
 /* /screenshots/diamond-001.bmp and .txt: the picture, and the screen as
    text with Diamond's state, for bug reports */
+/* the next free /screenshots/diamond-NNN name, or NULL */
+static const char *shot_name(char *path, size_t size)
+{
+	static char name[48];
+	fat32_file_t f;
+	if (fat32_dir_create(&f, "/screenshots") == FAT32_OK) fat32_close(&f);
+	int n;
+	for (n = 1; n < 1000; n++) {
+		snprintf(path, size, "/screenshots/diamond-%03d.bmp", n);
+		if (fat32_open(&f, path) != FAT32_OK) break;
+		fat32_close(&f);
+	}
+	if (n == 1000) return NULL;
+	snprintf(name, sizeof name, "diamond-%03d", n);
+	return name;
+}
+
+const char *ed_screenshot_pixels(const char *info)
+{
+	char path[64];
+	const char *name = shot_name(path, sizeof path);
+	if (!name) return NULL;
+	const int W = SCR_PX, H = SCR_PX;
+	uint8_t hdr[54] = { 'B', 'M' };
+	put_le(hdr + 2, 54 + W * H * 3, 4);
+	put_le(hdr + 10, 54, 4);
+	put_le(hdr + 14, 40, 4);
+	put_le(hdr + 18, W, 4);
+	put_le(hdr + 22, H, 4);
+	put_le(hdr + 26, 1, 2);
+	put_le(hdr + 28, 24, 2);
+	put_le(hdr + 34, W * H * 3, 4);
+	fat32_file_t f;
+	if (fat32_create(&f, path) != FAT32_OK) return NULL;
+	bool ok = write_all(&f, (const char *)hdr, sizeof hdr);
+	static uint16_t row[SCR_PX];
+	static uint8_t line[SCR_PX * 3];
+	for (int y = H - 1; ok && y >= 0; y--) {	/* read back from the screen, bottom row first */
+		lcd_unblit(row, 0, (uint16_t)y, (uint16_t)W, 1);
+		for (int x = 0; x < W; x++) {
+			uint16_t v = row[x];
+			line[x * 3 + 0] = (uint8_t)((v & 0x1F) << 3);
+			line[x * 3 + 1] = (uint8_t)(((v >> 5) & 0x3F) << 2);
+			line[x * 3 + 2] = (uint8_t)((v >> 11) << 3);
+		}
+		ok = write_all(&f, (const char *)line, sizeof line);
+	}
+	fat32_close(&f);
+	if (!ok) return NULL;
+	snprintf(path, sizeof path, "/screenshots/%s.txt", name);
+	if (fat32_create(&f, path) != FAT32_OK) return NULL;
+	ok = write_all(&f, "Diamond screenshot\r\n\r\n", 22);
+	for (const char *p = info; ok && *p; p++)
+		ok = *p == '\n' ? write_all(&f, "\r\n", 2) : write_all(&f, p, 1);
+	fat32_close(&f);
+	return ok ? name : NULL;
+}
+
 const char *ed_screenshot(const screen_t *s, const char *info)
 {
 	static char name[48];

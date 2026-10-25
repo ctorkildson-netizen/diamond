@@ -66,6 +66,9 @@ void ed_save_help_level(int level);
 /* save the screen as a picture and as text, with info (Diamond's state)
    added to the text; the files' name without its ending, or NULL */
 const char *ed_screenshot(const screen_t *s, const char *info);
+/* the same, for a screen the reading view drew: the pixels as they are on
+   the screen, and the info as the text */
+const char *ed_screenshot_pixels(const char *info);
 
 /* ---- the core ---- */
 

@@ -11,6 +11,7 @@ typographic ones only, and the reading view uses the bold face for the
 rest.  DejaVu's licence
 (LICENSE-DejaVu.txt) allows this."""
 from PIL import Image, ImageDraw, ImageFont
+import freetype   # pip install freetype-py
 import sys
 
 FD = '/usr/share/fonts/truetype/dejavu/'
@@ -23,6 +24,12 @@ FACES = [  # name, file, size, with Latin-1
     ('h1',         'DejaVuSans-Bold.ttf', 22, False),
     ('h2',         'DejaVuSans-Bold.ttf', 18, False),
     ('h3',         'DejaVuSans-Bold.ttf', 16, False),
+    # crisp: no smoothing, FreeType's hinting snaps each stroke to whole pixels
+    ('body_m',       'DejaVuSans.ttf', 14, True),
+    ('bold_m',       'DejaVuSans-Bold.ttf', 14, True),
+    ('italic_m',     'DejaVuSans-Oblique.ttf', 14, True),
+    ('bolditalic_m', 'DejaVuSans-BoldOblique.ttf', 14, True),
+    ('mono_m',       'DejaVuSansMono.ttf', 13, True),
 ]
 EXTRA = [0x2018, 0x2019, 0x201C, 0x201D, 0x2013, 0x2014, 0x2026, 0x2022]
 CHARS = list(range(32, 127)) + list(range(160, 256)) + EXTRA
@@ -34,12 +41,32 @@ total = 0
 for name, file, size, latin1 in FACES:
     f = ImageFont.truetype(FD + file, size)
     ascent, descent = f.getmetrics()
+    if name.endswith('_m'):
+        ft = freetype.Face(FD + file)
+        ft.set_pixel_sizes(0, size)
     glyphs, bits = [], bytearray()
     for cp in CHARS:
         if not latin1 and 160 <= cp < 256:
             glyphs.append((0, 0, 0, 0, 0, 0))     # not here: the bold face stands in
             continue
         ch = chr(cp)
+        if name.endswith('_m'):
+            # straight from FreeType, hinted for black and white: whole-pixel
+            # strokes and whole-pixel advances
+            ft.load_char(ch, freetype.FT_LOAD_RENDER | freetype.FT_LOAD_TARGET_MONO)
+            g = ft.glyph
+            bm = g.bitmap
+            w, h = bm.width, bm.rows
+            q = []
+            for r in range(h):
+                row = bm.buffer[r * bm.pitch:(r + 1) * bm.pitch]
+                q += [3 if row[x >> 3] & (0x80 >> (x & 7)) else 0 for x in range(w)]
+            while len(q) % 4: q.append(0)
+            off = len(bits)
+            for i in range(0, len(q), 4):
+                bits.append(q[i] << 6 | q[i + 1] << 4 | q[i + 2] << 2 | q[i + 3])
+            glyphs.append(((g.advance.x >> 6) * 4, w, h, g.bitmap_left, ascent - g.bitmap_top, off))
+            continue
         adv = f.getlength(ch)
         box = f.getbbox(ch)            # relative to the origin at the ascent line
         x0, y0, x1, y1 = box
