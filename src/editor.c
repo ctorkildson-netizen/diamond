@@ -231,14 +231,38 @@ static void parse_para(size_t ps, size_t n)
 		k = end + run - 1;
 	}
 
+	/* links: [text](address), on one line, with some text; the brackets
+	   and the address are marks, the text is shown as a link */
+	for (size_t k = body; k < n; k++) {
+		if (C(k) != '[' || (finfo[k] & (F_CODE | F_HIDDEN))) continue;
+		if (k > body && C(k - 1) == '\\') continue;		/* \[ is a plain [ */
+		size_t j = k + 1;
+		int depth = 0;
+		while (j < n && !(finfo[j] & F_CODE)) {
+			if (C(j) == '[') depth++;
+			else if (C(j) == ']') { if (!depth) break; depth--; }
+			j++;
+		}
+		if (j >= n || C(j) != ']' || C(j + 1) != '(' || j == k + 1) continue;
+		size_t r = j + 2;
+		while (r < n && C(r) != ')' && C(r) != ' ' && C(r) != '\t') r++;
+		if (r >= n || C(r) != ')') continue;
+		finfo[k] |= F_HIDDEN | F_OPEN;
+		for (size_t q = k + 1; q < j; q++)
+			if (!(finfo[q] & F_HIDDEN)) finfo[q] |= F_LINK;	/* (F_LINK is F_OPEN: not on marks) */
+		for (size_t q = j; q <= r; q++) finfo[q] |= F_HIDDEN;
+		k = r;
+	}
+
 	/* emphasis: runs of * or _, paired with a stack of openers */
 	struct { size_t pos, len, run; char ch; bool both; } st[32];
 	int sp = 0;
 	for (size_t k = body; k < n; ) {
 		char c = C(k);
 		if (finfo[k] & F_CODE) { k++; continue; }
+		if (finfo[k] & F_HIDDEN) { k++; continue; }	/* a link's address: no marks in it */
 		if (c == '\\' && k + 1 < n && strchr("*_`#\\[]", C(k + 1))) {
-			finfo[k] |= F_HIDDEN | F_MARK;	/* \* is a plain * */
+			finfo[k] = (uint8_t)((finfo[k] & ~F_OPEN) | F_HIDDEN);	/* \* is a plain * */
 			k += 2;
 			continue;
 		}
@@ -263,7 +287,7 @@ static void parse_para(size_t ps, size_t n)
 				size_t ob = st[o].pos + st[o].len - use, oe = st[o].pos + st[o].len;
 				uint8_t w = use == 2 ? F_W2 : F_W1;
 				for (size_t q = ob; q < oe; q++) finfo[q] = (uint8_t)((finfo[q] & 0x1F) | F_HIDDEN | F_OPEN | w);
-				for (size_t q = pos; q < pos + use; q++) finfo[q] = (uint8_t)((finfo[q] & 0x1F) | F_HIDDEN | w);
+				for (size_t q = pos; q < pos + use; q++) finfo[q] = (uint8_t)((finfo[q] & 0x1F & ~F_OPEN) | F_HIDDEN | w);
 				for (size_t q = oe; q < pos; q++) finfo[q] |= use == 2 ? F_BOLD : F_ITAL;
 				st[o].len -= use;
 				sp = st[o].len ? o + 1 : o;	/* openers above it are unmatched */
@@ -549,6 +573,7 @@ static const char *const main_menu[] = {
 static int style_of(uint8_t f)
 {
 	if (E.marks && (f & F_MARK)) return A_MARK;
+	if (!(f & F_HIDDEN) && (f & F_LINK)) return A_LINK;
 	if (f >= F_HEAD) return f < 2 * F_HEAD ? A_H1 : f < 3 * F_HEAD ? A_H2 : A_H3;
 	if (f & F_CODE) return A_CODE;
 	if ((f & (F_BOLD | F_ITAL)) == (F_BOLD | F_ITAL)) return A_BOLDITALIC;
@@ -623,8 +648,8 @@ static void draw(const char *pending)
 			if (at(i) == '\n') break;
 			scr.ch[row][col++] = glyph_at(i);
 		}
-		if (cv == len() && e == len() && line_start(E.cur) == s && col < SCR_COLS)
-			scr.at[row][col] |= A_CURSOR;
+		if (cv == len() && e == len() && line_start(E.cur) == s)	/* (a full last line: the last column) */
+			scr.at[row][col < SCR_COLS ? col : SCR_COLS - 1] |= A_CURSOR;
 		have = e != s && line_at(e) && !(e == len() && at(e - 1) != '\n');
 		s = e;
 	}
@@ -717,6 +742,19 @@ static void scroll_up(void)		/* ^W: the text moves down a line */
 
 static void place_marks(size_t pos, const char *cl, size_t ncl, const char *op, size_t nop, bool cur_inside);
 
+/* a link whose text is all gone ("[](address)" at pos-1): take its marks too */
+static bool drop_empty_link(size_t pos)
+{
+	if (pos == 0 || pos + 1 >= len() || at(pos - 1) != '[' || at(pos) != ']' || at(pos + 1) != '(') return false;
+	size_t r = pos + 2;
+	while (r < len() && at(r) != ')' && at(r) != ' ' && at(r) != '\n') r++;
+	if (r >= len() || at(r) != ')') return false;
+	size_t cur = E.cur;
+	delete(pos - 1, r + 2 - pos, false);
+	E.cur = cur > r ? cur - (r + 2 - pos) : cur >= pos - 1 ? pos - 1 : cur;
+	return true;
+}
+
 /* delete the character the cursor shows on (not the marks before it) */
 static void delete_char(size_t p)
 {
@@ -727,6 +765,7 @@ static void delete_char(size_t p)
 	while (lo > 0 && hidden(lo - 1) && (fmt(lo - 1) & F_OPEN) && strchr("*_`", at(lo - 1))) lo--;
 	while (hi < len() && hidden(hi) && !(fmt(hi) & F_OPEN) && strchr("*_`", at(hi))) hi++;
 	delete(a, b - a, false);
+	if (drop_empty_link(a)) return;
 	hi -= b - a;
 	if (!marks_round || a - lo != hi - a) {
 		/* a mark now against a space wouldn't count: move it to the word */
@@ -768,7 +807,30 @@ static void going(size_t a, size_t b, uint8_t *go)
 		go[i - a] = 1;
 		if (!hidden(i)) continue;
 		char c = at(i);
+		if (c == '[' && (fmt(i) & F_OPEN)) {	/* a link: kept unless its "](address)" goes too */
+			size_t j = i + 1;
+			while (j < len() && at(j) != '\n' && !(hidden(j) && at(j) == ']')) j++;
+			size_t r = j;
+			while (r < len() && at(r) != ')' && at(r) != '\n') r++;
+			if (r < len() && at(r) == ')') r++;
+			if (r > b) go[i - a] = 0;
+			continue;
+		}
+		if (c == ']' && !(fmt(i) & F_OPEN)) {	/* a link's "](address)": kept unless its [ goes too */
+			size_t o = i;
+			while (o > 0 && at(o - 1) != '\n' && !(hidden(o - 1) && at(o - 1) == '[')) o--;
+			size_t r = i;
+			while (r < len() && at(r) != ')' && at(r) != '\n') r++;
+			if (r < len() && at(r) == ')') r++;
+			if (o == 0 || o - 1 < a)
+				for (size_t q = i; q < r && q < b; q++) go[q - a] = 0;
+			else
+				for (size_t q = i; q < r && q < b; q++) go[q - a] = 1;
+			i = (r < b ? r : b) - 1;
+			continue;
+		}
 		if (c != '*' && c != '_' && c != '`') continue;	/* # and \\ go with their text */
+		if (c != '`' && !(fmt(i) & (F_W1 | F_W2))) continue;	/* (a * or _ in a link's address) */
 		if (fmt(i) & F_OPEN) {
 			go[i - a] = 0;			/* kept, unless its partner turns up */
 			if (sp < 64) st[sp++] = i;
@@ -810,7 +872,7 @@ static void delete_keep(size_t a, size_t b, bool keep)
 		fl[i] = fmt(lo + i);
 		opener[i] = hidden(lo + i) && (fl[i] & F_OPEN);
 	}
-	#define MARK(i) (hidden(lo + (i)) && strchr("*_`", orig[i]))
+	#define MARK(i) (hidden(lo + (i)) && strchr("*_`", orig[i]) && (orig[i] == '`' || (fl[i] & (F_W1 | F_W2))))
 	/* kept closing marks against openers just before a */
 	size_t ost[32];
 	int osp = 0;
@@ -875,13 +937,14 @@ static void delete_keep(size_t a, size_t b, bool keep)
 	size_t k = 0;
 	if (t) for (size_t i = a - lo; i < b - lo; i++) if (go[i]) t[k++] = orig[i];
 	/* the marks of a..b that stay, closing ones and opening ones */
-	char cl[64], op[64];
+	char *cl = malloc(n + 1), *op = malloc(n + 1);
+	if (!cl || !op) { free(cl); free(op); free(go); free(opener); free(t); free(orig); free(fl); delete(a, b - a, keep); return; }
 	size_t ncl = 0, nop = 0, stay = 0;
 	for (size_t i = a - lo; i < b - lo; i++)
 		if (!go[i]) {
 			stay++;
-			if (opener[i]) { if (nop < 64) op[nop++] = orig[i]; }
-			else if (ncl < 64) cl[ncl++] = orig[i];
+			if (opener[i]) op[nop++] = orig[i];
+			else cl[ncl++] = orig[i];
 		}
 	/* delete, from the end, a run at a time */
 	size_t before_a = 0;		/* how much goes before a (moves a back) */
@@ -901,7 +964,8 @@ static void delete_keep(size_t a, size_t b, bool keep)
 		delete(a, stay, false);
 		place_marks(a, cl, ncl, op, nop, false);
 	}
-	free(go); free(opener); free(t); free(orig); free(fl);
+	drop_empty_link(a);
+	free(go); free(opener); free(t); free(orig); free(fl); free(cl); free(op);
 }
 
 /* the text of a..b without its unpartnered marks (malloc'd; *n its length) */
@@ -925,8 +989,13 @@ static char *text_of(size_t a, size_t b, size_t *n)
 static void place_marks(size_t pos, const char *cl, size_t ncl, const char *op, size_t nop, bool cur_inside)
 {
 	size_t cur = E.cur;
-	char o2[64], c2[64];
-	if (nop > 64 || ncl > 64) return;
+	char *o2 = malloc(nop + 1), *c2 = malloc(ncl + 1);
+	if (!o2 || !c2) {		/* (no memory: put them back where they were) */
+		free(o2); free(c2);
+		E.cur = pos; insert(cl, ncl); insert(op, nop);
+		E.cur = cur >= pos ? cur + ncl + nop : cur;
+		return;
+	}
 	if (nop) memcpy(o2, op, nop);
 	if (ncl) memcpy(c2, cl, ncl);
 	op = o2;
@@ -958,11 +1027,13 @@ static void place_marks(size_t pos, const char *cl, size_t ncl, const char *op, 
 			memmove(c2, c2 + 1, --ncl);
 		}
 		E.cur = q;
-		if (!ncl) { E.cur = cur; return; }
+		if (!ncl) { E.cur = cur; free(o2); free(c2); return; }
 		insert(cl, ncl);
 		if (cur >= q) cur += ncl;
 	}
 	E.cur = cur;
+	free(o2);
+	free(c2);
 }
 
 /* Insert text with line breaks in it.  A break inside something bold
@@ -982,14 +1053,31 @@ static void insert_text(const char *s, size_t n)
 	for (size_t i = para_start(p); i < p; i++) {
 		if (!hidden(i)) continue;
 		char c = at(i);
-		if (c != '*' && c != '_' && c != '`') continue;
+		if (c == ']' && !(fmt(i) & F_OPEN)) c = '[';	/* a link's end closes its [ */
+		else if (c == '[' && (fmt(i) & F_OPEN)) ;
+		else if (c != '*' && c != '_' && c != '`') continue;
+		else if (c != '`' && !(fmt(i) & (F_W1 | F_W2))) continue;	/* (in a link's address) */
 		if (fmt(i) & F_OPEN) { if (sp < 16) sat[sp] = i, st[sp++] = c; }
 		else {
 			int o = sp - 1;
 			while (o >= 0 && st[o] != c) o--;
 			if (o >= 0) { for (int q = o; q < sp - 1; q++) st[q] = st[q + 1], sat[q] = sat[q + 1]; sp--; }
+			if (c == '[') while (i + 1 < p && at(i) != ')') i++;	/* past its address */
 		}
 	}
+	/* a link the break falls inside: both halves keep its address */
+	size_t url = NOWHERE, url_len = 0;
+	for (int q = 0; q < sp; q++)
+		if (st[q] == '[') {
+			size_t j = p;
+			while (j < len() && at(j) != '\n' && !(hidden(j) && at(j) == ']' && !(fmt(j) & F_OPEN))) j++;
+			size_t r = j;
+			while (r < len() && at(r) != ')' && at(r) != '\n') r++;
+			if (r < len() && at(r) == ')') r++;
+			if (j < len() && at(j) == ']') { url = j; url_len = r - j; }
+			else { for (int z = q; z < sp - 1; z++) st[z] = st[z + 1], sat[z] = sat[z + 1]; sp--; }	/* (not a link after all) */
+			break;
+		}
 	E.cur = p;
 	if (!sp) { insert(s, n); return; }
 	/* opening marks with nothing after them yet (the break comes straight
@@ -1011,12 +1099,19 @@ static void insert_text(const char *s, size_t n)
 	size_t a = E.cur;
 	insert(s, n);
 	if (E.cur != a + n) return;			/* memory full */
-	char cl[16], op[16];
+	char *cl = malloc((size_t)sp + url_len + 1), op[16];
+	if (!cl) return;
 	int ncl = sp - empty;
-	for (int q = 0; q < ncl; q++) cl[q] = st[ncl - 1 - q];
+	size_t k = 0;
+	for (int q = ncl - 1; q >= 0; q--) {		/* close, innermost first */
+		if (st[q] != '[') { cl[k++] = st[q]; continue; }
+		size_t u = url + (url > a ? n : 0);	/* (the text went in before it) */
+		for (size_t z = 0; z < url_len; z++) cl[k++] = at(u + z);
+	}
 	for (int q = 0; q < sp; q++) op[q] = st[q];
 	place_marks(a + (size_t)(last - s), NULL, 0, op, (size_t)sp, true);	/* open again after the last break */
-	place_marks(a + (size_t)(nl - s), cl, (size_t)ncl, NULL, 0, false);	/* close before the first */
+	place_marks(a + (size_t)(nl - s), cl, k, NULL, 0, false);		/* close before the first */
+	free(cl);
 }
 
 /* ^PB, ^PY with a block: put marks around each paragraph of it */
@@ -1449,9 +1544,10 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 			if (E.unerase_len) insert_text(E.unerase, E.unerase_len);
 			break;
 		case CTRL('N'): {
-			size_t at_ = E.cur;
 			insert_text("\n", 1);
-			E.cur = at_;
+			size_t q = E.cur;		/* back to the break (before any marks it closed) */
+			while (q > 0 && at(q - 1) != '\n') q--;
+			if (q > 0) E.cur = canon(q - 1, para_start(q - 1));
 			break;
 		}
 		case CTRL('V'): case K_INS: E.overtype = !E.overtype; break;

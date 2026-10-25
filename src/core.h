@@ -14,6 +14,7 @@ char doc_at(size_t i);
 uint8_t doc_fmt(size_t i);
 
 enum { F_HIDDEN = 1, F_BOLD = 2, F_ITAL = 4, F_CODE = 8, F_OPEN = 16 /* an opening mark */, F_HEAD = 32 /* x level */ };
+#define F_LINK F_OPEN		/* on a shown byte: the text of a link */
 
 /* the reading view (or, if page_view, page view), from the paragraph holding
    position pos: returns the position to put the cursor at when it closes

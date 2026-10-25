@@ -119,7 +119,7 @@ int ed_key_wait(int ms)
 
 /* ------------------------------------------------------------ screen */
 
-enum { HEAVY = 1, SLANT = 2 };	/* bold: each dot doubled to the right; italic: the top leans right */
+enum { HEAVY = 1, SLANT = 2, UNDER = 4 };	/* bold: each dot doubled to the right; italic: the top leans right; a link: underlined */
 static const struct { uint16_t fg, bg; uint8_t look; } colours[] = {
 	[A_TEXT]   = { 0xC618, 0x0000 },	/* light grey on black */
 	[A_STATUS] = { 0xFFFF, 0x0010 },	/* white on navy */
@@ -139,6 +139,7 @@ static const struct { uint16_t fg, bg; uint8_t look; } colours[] = {
 	[A_H3]     = { 0xAFE5, 0x0000 },		/* yellow-green */
 	[A_CODE]   = { 0x9772, 0x2104 },		/* green on dark grey */
 	[A_MARK]   = { 0x632C, 0x0000 },		/* dim grey: a Markdown mark */
+	[A_LINK]   = { 0x7D5F, 0x0000, UNDER },	/* blue, underlined */
 };
 
 static screen_t shown;
@@ -161,6 +162,7 @@ static void render_row(const screen_t *s, int r)
 			uint8_t bits = g[y];
 			if (look & SLANT && y < 4) bits >>= 1;
 			if (look & HEAVY) bits |= bits >> 1;
+			if (look & UNDER && y == GLYPH_HEIGHT - 1) bits = 0x1F;
 			for (int x = 0; x < 5; x++) p[x] = (bits & (0x10 >> x)) ? fg : bg;
 		}
 	}

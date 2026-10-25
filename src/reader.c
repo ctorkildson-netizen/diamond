@@ -233,7 +233,7 @@ static unsigned next_ch(cursor_t *c, int *style)
 			size_t te, end;
 			if (link_at(p, &te, &end)) { c->link_end = te; c->skip_to = end; c->p = p + 1; continue; }
 		}
-		*style = (f & (F_BOLD | F_ITAL | F_CODE)) | (c->link_end ? LINK : 0);
+		*style = (f & (F_BOLD | F_ITAL | F_CODE)) | (c->link_end || (f & F_LINK) ? LINK : 0);
 		/* UTF-8 */
 		unsigned cp = ch;
 		int more = ch >= 0xF0 ? 3 : ch >= 0xE0 ? 2 : ch >= 0xC0 ? 1 : 0;
