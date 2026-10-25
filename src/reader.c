@@ -249,31 +249,14 @@ static unsigned next_ch(cursor_t *c, int *style)
 
 /* ------------------------------------------------------------ fonts */
 
-/* How the small text is drawn: smoothed (0), smoothed with stronger ink
-   (1), or crisp, with no smoothing (2).  G switches. */
-static int ink;
-static const char *const ink_name[] = { "Smooth letters", "Strong letters", "Crisp letters" };
-
-/* the text faces in the chosen way (the headings are always smoothed) */
-static const rfont_t *tf(const rfont_t *f)
-{
-	if (ink != 2) return f;
-	if (f == &rfont_body) return &rfont_body_m;
-	if (f == &rfont_bold) return &rfont_bold_m;
-	if (f == &rfont_italic) return &rfont_italic_m;
-	if (f == &rfont_bolditalic) return &rfont_bolditalic_m;
-	if (f == &rfont_mono) return &rfont_mono_m;
-	return f;
-}
-
 static const rfont_t *face(const block_t *b, int style)
 {
 	if (b->kind == B_HEAD) return b->level == 1 ? &rfont_h1 : b->level == 2 ? &rfont_h2 : &rfont_h3;
-	if (b->kind == B_CODE || (style & F_CODE)) return tf(&rfont_mono);
-	if ((style & (F_BOLD | F_ITAL)) == (F_BOLD | F_ITAL)) return tf(&rfont_bolditalic);
-	if (style & F_BOLD) return tf(&rfont_bold);
-	if (style & F_ITAL) return tf(&rfont_italic);
-	return tf(&rfont_body);
+	if (b->kind == B_CODE || (style & F_CODE)) return (&rfont_mono);
+	if ((style & (F_BOLD | F_ITAL)) == (F_BOLD | F_ITAL)) return (&rfont_bolditalic);
+	if (style & F_BOLD) return (&rfont_bold);
+	if (style & F_ITAL) return (&rfont_italic);
+	return (&rfont_body);
 }
 
 /* the glyph for cp in f, or in a face that has it; *f changes to that face */
@@ -442,8 +425,8 @@ static uint16_t blend(uint16_t fg, uint16_t bg, int a)	/* a: 0..3 */
 {
 	if (a == 0) return bg;
 	if (a == 3) return fg;
-	static const int weight[2][4] = { { 0, 85, 170, 255 }, { 0, 150, 225, 255 } };
-	int w = weight[ink == 1][a];
+	static const int weight[4] = { 0, 85, 170, 255 };
+	int w = weight[a];
 	int r = ((fg >> 11) * w + (bg >> 11) * (255 - w)) / 255;
 	int g = (((fg >> 5) & 63) * w + ((bg >> 5) & 63) * (255 - w)) / 255;
 	int b = ((fg & 31) * w + (bg & 31) * (255 - w)) / 255;
@@ -498,7 +481,7 @@ static void draw_line(int li, int y, int lh)
 			int more = c0 >= 0xE0 ? 2 : c0 >= 0xC0 ? 1 : 0;
 			if (more) { cp = c0 & (0x3F >> more); for (int k = 1; k <= more; k++) cp = cp << 6 | (q[k] & 0x3F); }
 			q += 1 + more;
-			bw += adv4(tf(&rfont_body), cp);
+			bw += adv4((&rfont_body), cp);
 		}
 		int bx = x4 - bw - 4 * 5;
 		for (const char *q = s; *q; ) {
@@ -507,8 +490,8 @@ static void draw_line(int li, int y, int lh)
 			int more = c0 >= 0xE0 ? 2 : c0 >= 0xC0 ? 1 : 0;
 			if (more) { cp = c0 & (0x3F >> more); for (int k = 1; k <= more; k++) cp = cp << 6 | (q[k] & 0x3F); }
 			q += 1 + more;
-			draw_glyph(tf(&rfont_body), cp, bx, top, lh, C_TEXT, C_BG);
-			bx += adv4(tf(&rfont_body), cp);
+			draw_glyph((&rfont_body), cp, bx, top, lh, C_TEXT, C_BG);
+			bx += adv4((&rfont_body), cp);
 		}
 	}
 	uint16_t text = b->kind == B_HEAD ? (b->level == 1 ? C_H1 : b->level == 2 ? C_H2 : C_H3)
@@ -522,8 +505,8 @@ static void draw_line(int li, int y, int lh)
 			if (more) { cp = ch & (0x3F >> more); for (int k = 1; k <= more; k++) cp = cp << 6 | ((unsigned char)at(p + k) & 0x3F); }
 			p += 1 + more;
 			if (cp == '\t') cp = ' ';
-			draw_glyph(tf(&rfont_mono), cp, x4, top, lh, C_CODE, C_CODEBG);
-			x4 += adv4(tf(&rfont_mono), cp);
+			draw_glyph((&rfont_mono), cp, x4, top, lh, C_CODE, C_CODEBG);
+			x4 += adv4((&rfont_mono), cp);
 			if (x4 / 4 > W) break;
 		}
 		ed_blit(0, y, W, lh, px);
@@ -553,11 +536,11 @@ static void footer(const char *l, const char *r)
 {
 	for (int i = 0; i < W * FOOTER; i++) px[i] = C_FOOTBG;
 	int x4 = MARGIN * 4, top = (FOOTER - rfont_body.height) / 2;
-	for (const char *s = l; *s; s++) { draw_glyph(tf(&rfont_body), (unsigned char)*s, x4, top, FOOTER, C_FOOT, C_FOOTBG); x4 += adv4(tf(&rfont_body), (unsigned char)*s); }
+	for (const char *s = l; *s; s++) { draw_glyph((&rfont_body), (unsigned char)*s, x4, top, FOOTER, C_FOOT, C_FOOTBG); x4 += adv4((&rfont_body), (unsigned char)*s); }
 	int w4 = 0;
-	for (const char *s = r; *s; s++) w4 += adv4(tf(&rfont_body), (unsigned char)*s);
+	for (const char *s = r; *s; s++) w4 += adv4((&rfont_body), (unsigned char)*s);
 	x4 = (W - MARGIN) * 4 - w4;
-	for (const char *s = r; *s; s++) { draw_glyph(tf(&rfont_body), (unsigned char)*s, x4, top, FOOTER, C_FOOT, C_FOOTBG); x4 += adv4(tf(&rfont_body), (unsigned char)*s); }
+	for (const char *s = r; *s; s++) { draw_glyph((&rfont_body), (unsigned char)*s, x4, top, FOOTER, C_FOOT, C_FOOTBG); x4 += adv4((&rfont_body), (unsigned char)*s); }
 	ed_blit(0, H - FOOTER, W, FOOTER, px);
 }
 
@@ -643,7 +626,7 @@ size_t reader_run(size_t pos, const char *name)
 		char r[32];
 		int pct = n_blocks > 1 ? (int)((long)top.b * 100 / (n_blocks - 1)) : 100;
 		snprintf(r, sizeof r, "%d%%", end ? 100 : pct);
-		footer("Esc back   G letters   P page", r);
+		footer("Esc back   P page view", r);
 		int k = ed_key_wait(-1);
 		int rows = screenful(top);
 		switch (k) {
@@ -678,17 +661,10 @@ size_t reader_run(size_t pos, const char *name)
 			footer("Page view isn't here yet", "");
 			ed_key_wait(1500);
 			break;
-		case 'g': case 'G':		/* the next way of drawing the small letters */
-			ink = (ink + 1) % 3;
-			laid_out = -1;		/* (crisp letters have their own widths) */
-			draw_screen(top);
-			footer(ink_name[ink], "G for the next");
-			ed_key_wait(1500);
-			break;
 		case K_SHOT: {
 			char info[128];
-			snprintf(info, sizeof info, "reading view, %s, block %d of %d, line %d\n",
-			         ink_name[ink], top.b + 1, n_blocks, top.l + 1);
+			snprintf(info, sizeof info, "reading view, block %d of %d, line %d\n",
+			         top.b + 1, n_blocks, top.l + 1);
 			const char *nm = ed_screenshot_pixels(info);
 			footer(nm ? "Screenshot saved:" : "The screenshot failed", nm ? nm : "");
 			ed_key_wait(1500);

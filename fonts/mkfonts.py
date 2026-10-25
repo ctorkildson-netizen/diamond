@@ -15,21 +15,19 @@ import freetype   # pip install freetype-py
 import sys
 
 FD = '/usr/share/fonts/truetype/dejavu/'
-FACES = [  # name, file, size, with Latin-1
-    ('body',       'DejaVuSans.ttf', 14, True),
-    ('bold',       'DejaVuSans-Bold.ttf', 14, True),
-    ('italic',     'DejaVuSans-Oblique.ttf', 14, True),
-    ('bolditalic', 'DejaVuSans-BoldOblique.ttf', 14, True),
-    ('mono',       'DejaVuSansMono.ttf', 13, True),
-    ('h1',         'DejaVuSans-Bold.ttf', 22, False),
-    ('h2',         'DejaVuSans-Bold.ttf', 18, False),
-    ('h3',         'DejaVuSans-Bold.ttf', 16, False),
-    # crisp: no smoothing, FreeType's hinting snaps each stroke to whole pixels
-    ('body_m',       'DejaVuSans.ttf', 14, True),
-    ('bold_m',       'DejaVuSans-Bold.ttf', 14, True),
-    ('italic_m',     'DejaVuSans-Oblique.ttf', 14, True),
-    ('bolditalic_m', 'DejaVuSans-BoldOblique.ttf', 14, True),
-    ('mono_m',       'DejaVuSansMono.ttf', 13, True),
+# The text faces are crisp: no smoothing, with FreeType's hinting putting
+# each stroke and each advance on whole pixels.  Smoothed small letters
+# looked poor on the PicoCalc's panel (a grey beside a vertical stroke lights
+# its red, green and blue stripes unevenly); smoothed headings look fine.
+FACES = [  # name, file, size, with Latin-1, crisp
+    ('body',       'DejaVuSans.ttf', 14, True, True),
+    ('bold',       'DejaVuSans-Bold.ttf', 14, True, True),
+    ('italic',     'DejaVuSans-Oblique.ttf', 14, True, True),
+    ('bolditalic', 'DejaVuSans-BoldOblique.ttf', 14, True, True),
+    ('mono',       'DejaVuSansMono.ttf', 13, True, True),
+    ('h1',         'DejaVuSans-Bold.ttf', 22, False, False),
+    ('h2',         'DejaVuSans-Bold.ttf', 18, False, False),
+    ('h3',         'DejaVuSans-Bold.ttf', 16, False, False),
 ]
 EXTRA = [0x2018, 0x2019, 0x201C, 0x201D, 0x2013, 0x2014, 0x2026, 0x2022]
 CHARS = list(range(32, 127)) + list(range(160, 256)) + EXTRA
@@ -38,10 +36,10 @@ out = sys.stdout
 out.write('/* rfonts.c -- made by fonts/mkfonts.py from DejaVu Sans; do not edit.\n'
           '   DejaVu fonts: see fonts/LICENSE-DejaVu.txt. */\n#include "rfonts.h"\n\n')
 total = 0
-for name, file, size, latin1 in FACES:
+for name, file, size, latin1, crisp in FACES:
     f = ImageFont.truetype(FD + file, size)
     ascent, descent = f.getmetrics()
-    if name.endswith('_m'):
+    if crisp:
         ft = freetype.Face(FD + file)
         ft.set_pixel_sizes(0, size)
     glyphs, bits = [], bytearray()
@@ -50,7 +48,7 @@ for name, file, size, latin1 in FACES:
             glyphs.append((0, 0, 0, 0, 0, 0))     # not here: the bold face stands in
             continue
         ch = chr(cp)
-        if name.endswith('_m'):
+        if crisp:
             # straight from FreeType, hinted for black and white: whole-pixel
             # strokes and whole-pixel advances
             ft.load_char(ch, freetype.FT_LOAD_RENDER | freetype.FT_LOAD_TARGET_MONO)

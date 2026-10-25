@@ -1,6 +1,7 @@
 /* rfonts.h -- the reading view's fonts: DejaVu Sans drawn ahead of time
    (fonts/mkfonts.py), with 2-bit coverage, so they can be blended onto any
-   background. */
+   background (the text faces are crisp: only 0 and 3; the headings are
+   smoothed). */
 #ifndef DIAMOND_RFONTS_H
 #define DIAMOND_RFONTS_H
 
@@ -23,8 +24,6 @@ typedef struct {
 
 extern const rfont_t rfont_body, rfont_bold, rfont_italic, rfont_bolditalic, rfont_mono,
 	rfont_h1, rfont_h2, rfont_h3;
-/* the same text faces drawn crisp, without smoothing */
-extern const rfont_t rfont_body_m, rfont_bold_m, rfont_italic_m, rfont_bolditalic_m, rfont_mono_m;
 
 /* the glyph for a Unicode character, or NULL if the fonts don't have it
    (a glyph that moves the pen nowhere isn't in this face: try another) */
