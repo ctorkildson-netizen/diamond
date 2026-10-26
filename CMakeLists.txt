@@ -11,7 +11,7 @@ set(DRV ${MODULES}/picocalc-text-starter/drivers)
 include(${MODULES}/picocalc-extras/picker/picker.cmake)
 
 # cmake -DDIAMOND_BT=ON builds diamond-bt.uf2, which also takes a Bluetooth
-# keyboard (paired with bt-test); it's twice the size, so it's a build of its own
+# keyboard (paired with btpair); it's twice the size, so it's a build of its own
 option(DIAMOND_BT "Build diamond-bt, with a Bluetooth keyboard" OFF)
 set(BTKBD_DIR ${MODULES}/picocalc-extras/bluetooth CACHE PATH "Where bluetooth.cmake is")
 if (DIAMOND_BT)
