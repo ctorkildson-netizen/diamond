@@ -63,6 +63,8 @@ bool ed_io_load(const char *path, char *buf, size_t cap, size_t *len, const char
    file, keeping the old one as a .bak; NULL or a message */
 const char *ed_io_save(const char *path, const char *a, size_t alen,
                        const char *b, size_t blen, bool crlf);
+/* is there a file by that name? */
+bool ed_io_exists(const char *path);
 /* remember the help level (0..3) for next time */
 void ed_save_help_level(int level);
 /* save the screen as a picture and as text, with info (Diamond's state)

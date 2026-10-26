@@ -13,6 +13,8 @@ The keys for moving are a diamond under your left hand, which is where the name 
 - **^R** a screen up, **^C** a screen down
 - **^W** and **^Z** scroll the text a line at a time
 - **^QS** and **^QD** go to the start and end of a line; **^QR** and **^QC** to the start and end of the document
+- **^QG** and a character goes to the next one of it, **^QH** back to the one before
+- **^QI** goes to a page, as the status line counts them (P01, P02...), or to a line: type L and its number
 
 The arrow keys, Home, End, PgUp and PgDn work too.
 
@@ -84,6 +86,9 @@ A link looks like this in the reading view: [the PicoCalc forum](https://forum.c
 - **^KS** saves and carries on; **^KD** saves and goes back to the list of documents; **^KX** saves and goes back to the shell; **^KQ** closes without saving.
 - Saving keeps the previous version as a `.bak` file.
 - **^K0** to **^K9** set place markers, and **^Q0** to **^Q9** go back to them.
+- **^KR** reads another file in at the cursor, and **^KW** writes the block to a file of its own. A name on its own is in the same folder as this document.
+- **^Q?** counts the words and characters (not counting the Markdown marks).
+- **^QQ** repeats a command until you press a key: ^QQ^C pages down through the document, for reading. While it repeats, 0 to 9 set the speed, from fast to slow.
 - **F5** saves a screenshot in `/screenshots`, as a picture and as text.
 - **^J** is help: **^JJ** lists the keys, and **^JH** sets how much help the screen shows, from 3 (the most) down to 0.
 
@@ -101,7 +106,7 @@ Diamond follows WordStar 4 wherever it can, so if you know WordStar, your finger
 - **The views are new.** WordStar 4's ^OP turned on a preview of the text as it would print; Diamond's ^OP is a reading view in proportional type, and ^OV its page view. (^OD is WordStar's own, though: there it showed or hid the print codes, as Diamond shows or hides the Markdown marks.)
 - **No dot commands** (.HE, .FO, .PA and the rest): headings and the rest come from Markdown.
 - **Plain text by the file's name.** WordStar opened program files and plain text in its non-document mode (N at the opening menu); Diamond does the same for any file that doesn't end in `.md`.
-- **No file commands in ^K** yet (^KR to read in a file, ^KW to write a block out, ^KE, ^KJ, ^KF). The list of documents does that work for now.
+- **Fewer file commands in ^K.** ^KR and ^KW are there, but not ^KE, ^KJ, ^KO or ^KF: the list of documents does that work.
 - **Esc backs out** of a command that's asking you something ("Find?", "Close without saving?"); in WordStar, ^U did that as well as unerasing.
 
 ## The end

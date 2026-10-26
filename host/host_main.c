@@ -135,6 +135,13 @@ bool ed_io_load(const char *path, char *buf, size_t cap, size_t *len, const char
 	return true;
 }
 
+bool ed_io_exists(const char *path)
+{
+	FILE *f = fopen(path, "rb");
+	if (f) fclose(f);
+	return f != NULL;
+}
+
 const char *ed_io_save(const char *path, const char *a, size_t alen,
                        const char *b, size_t blen, bool crlf)
 {

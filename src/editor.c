@@ -1238,6 +1238,137 @@ static void wrap_block(const char *m)
 	E.bk = b + added;
 }
 
+/* ------------------------------------------------------------ WordStar 4's extras */
+
+static bool ask_text(const char *label, char *buf_, size_t size);
+
+/* a file's name as typed, in the document's folder unless it starts with / */
+static void full_path(const char *name, char *out, size_t size)
+{
+	const char *slash = strrchr(E.path, '/');
+	if (name[0] == '/' || !slash) snprintf(out, size, "%s", name);
+	else snprintf(out, size, "%.*s/%s", (int)(slash - E.path), E.path, name);
+}
+
+/* ^KR: the file's text goes in at the cursor, as it is (its marks and all) */
+static void read_file(void)
+{
+	char name[64] = "", path[192], b[SCR_COLS + 1];
+	if (!ask_text("Read in which file?", name, sizeof name) || !name[0]) return;
+	full_path(name, path, sizeof path);
+	move_gap(E.cur);
+	size_t n = 0;
+	const char *err = NULL;
+	if (!ed_io_load(path, buf + gs, ge - gs, &n, &err)) {	/* straight into the gap */
+		snprintf(b, sizeof b, " %.30s %s", name, err);
+		say(b);
+		return;
+	}
+	size_t j = 0;					/* CR LF becomes LF, as on loading */
+	for (size_t i = 0; i < n; i++) {
+		char c = buf[gs + i];
+		if (c == '\r' && i + 1 < n && buf[gs + i + 1] == '\n') continue;
+		buf[gs + j++] = c;
+	}
+	n = j;
+	if (!n) { say(" That file is empty"); return; }
+	int before = percent_full();
+	pins_insert(E.cur, n);
+	E.edits++;
+	if (E.cur < ln_anchor) ln_anchor = 0, ln_count = 0;
+	gs += n;					/* the cursor stays at its start */
+	E.modified = true;
+	snprintf(b, sizeof b, " Read in %.30s", name);
+	say(b);
+	if (before < 90 && percent_full() >= 90)
+		say(" Memory is 90% full: time to save, and start a new document");
+}
+
+/* ^KW: the block, less marks whose partners are outside it, to a file */
+static void write_block(void)
+{
+	char name[64] = "", path[192], b[SCR_COLS + 1];
+	if (!block_ok()) { say(" No block: mark its start with ^KB and its end with ^KK"); return; }
+	if (!ask_text("Write the block to which file?", name, sizeof name) || !name[0]) return;
+	full_path(name, path, sizeof path);
+	if (!strcmp(path, E.path)) { say(" That's this document: use ^KS to save it"); return; }
+	if (ed_io_exists(path) && !ask_yes(" That file is there already. Replace it? (Y/N)")) return;
+	size_t n;
+	char *t = text_of(E.bb, E.bk, &n);
+	const char *err;
+	if (t) {
+		err = ed_io_save(path, t, n, "", 0, E.crlf);
+		free(t);
+	} else {					/* no memory for a tidy copy: as it is */
+		move_gap(E.bk);
+		err = ed_io_save(path, buf + E.bb, E.bk - E.bb, "", 0, E.crlf);
+	}
+	if (err) snprintf(b, sizeof b, " Not written: %s", err);
+	else snprintf(b, sizeof b, " The block is in %.40s", name);
+	say(b);
+}
+
+/* ^Q?: words and characters, not counting the Markdown marks */
+static void count_words(void)
+{
+	unsigned long chars = 0, words = 0, before = 0;
+	bool in_word = false;
+	size_t n = len();
+	for (size_t i = 0; i < n; i++) {
+		char c = at(i);
+		if (cont(c) || hidden(i)) continue;
+		if (i < E.cur) before++;
+		bool sp = c == ' ' || c == '\n' || c == '\t';
+		if (c != '\n') chars++;
+		if (!sp && !in_word) words++;
+		in_word = !sp;
+	}
+	char b[SCR_COLS + 1];
+	snprintf(b, sizeof b, " %lu words, %lu characters (%lu before the cursor)", words, chars, before);
+	say(b);
+}
+
+/* ^QG, ^QH: to the next (or previous) of a character typed now */
+static void to_char(bool back, const char *name)
+{
+	draw(name);
+	ed_show(&scr);
+	int k = ed_key_wait(-1);
+	if (k < 0x20 || k >= 0x7F) return;
+	size_t n = len();
+	if (!back) {
+		for (size_t p = next_char(E.cur); p < n; p++)
+			if (at(p) == (char)k && !hidden(p)) { E.cur = p; return; }
+	} else {
+		for (size_t p = E.cur; p-- > 0; )
+			if (at(p) == (char)k && !hidden(p)) { E.cur = p; return; }
+	}
+	char b[SCR_COLS + 1];
+	snprintf(b, sizeof b, " No '%c' %s the cursor", k, back ? "before" : "after");
+	say(b);
+}
+
+/* ^QI: to the start of a page (as the status line counts them) or a line */
+static void to_page(void)
+{
+	char ans[16] = "";
+	if (!ask_text("Go to which page? (or L and a line number)", ans, sizeof ans) || !ans[0]) return;
+	const char *p = ans;
+	while (*p == ' ') p++;
+	bool line = *p == 'l' || *p == 'L';
+	if (line) p++;
+	long want = strtol(p, NULL, 10);
+	if (want < 1) { say(" A number, from 1"); return; }
+	long target = line ? want - 1 : (want - 1) * LINES_PER_PAGE;
+	size_t s = 0;
+	for (long i = 0; i < target; i++) {
+		size_t e = next_line(s);
+		if (e == s || !line_at(e)) break;
+		s = e;
+	}
+	E.cur = s;
+}
+
 /* ------------------------------------------------------------ menus */
 
 static const char *const k_menu[] = {
@@ -1249,10 +1380,11 @@ static const char *const k_menu[] = {
 	"Q  close, no saving      V  move the block here",
 	"                         Y  delete the block",
 	"0-9  set a place marker  H  hide/show the block",
+	"R  read a file in here   W  write the block to a file",
 	"",
 	"(with Ctrl or without: ^KS and KS are the same)",
 };
-#define K_MENU_LINES 10
+#define K_MENU_LINES 11
 static const char *const q_menu[] = {
 	"^Q  quick moves: then one of these keys",
 	"",
@@ -1262,12 +1394,16 @@ static const char *const q_menu[] = {
 	"B  start of block     K  end of block",
 	"0-9  a place marker",
 	"F  find               A  find and replace",
+	"G  to a character     H  back to a character",
+	"I  to a page (or L and a line number)",
 	"Y  delete to end of line",
 	"Backspace  delete to start of line",
+	"?  count the words and characters",
+	"Q  repeat a command until a key is pressed",
 	"",
 	"(with Ctrl or without: ^QS and QS are the same)",
 };
-#define Q_MENU_LINES 12
+#define Q_MENU_LINES 16
 static const char *const o_menu[] = {
 	"^O  options: then one of these keys",
 	"",
@@ -1318,14 +1454,16 @@ static const char *const keys_help[] = {
 	"^KS ^KD ^KX   save; save and close; save and exit",
 	"^KQ           close without saving",
 	"^KB ^KK       mark the start, end of a block",
-	"^KC ^KV ^KY   copy, move, delete the block",
-	"^KH           hide or show the block",
+	"^KC ^KV ^KY ^KH  copy, move, delete, hide the block",
 	"^PB ^PY       bold, italic (the block, or what's typed)",
 	"^P Space      back to plain text (at the end of bold)",
 	"^OD           show the Markdown marks (** _ # `)",
 	"^OP ^OV       the reading view; page view (Esc comes back)",
 	"^K0..^K9      set a place marker; ^Q0..^Q9 go there",
 	"^QF ^QA ^L    find; find and replace; again",
+	"^QG ^QH ^QI   to a character; back to one; to a page",
+	"^QQ ^Q?       repeat a command; count the words",
+	"^KR ^KW       read a file in; write the block out",
 	"^JH           help level: 3 shows the most",
 	"",
 	"(any key to go on)",
@@ -1351,6 +1489,7 @@ static int second_key(const char *name, const char *const *menu, int n)
 	if (k >= '0' && k <= '9') return k;
 	if (k == K_BS || k == K_DEL) return 8;
 	if (k == ' ') return ' ';
+	if (k == '?') return '?';
 	return 0;
 }
 
@@ -1576,11 +1715,21 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 	for (int i = 0; i < 10; i++) E.mark[i] = NOWHERE;
 
 	int result = -1;
+	int rep_key = 0, rep_ms = 0;	/* ^QQ */
 	while (result < 0) {
 		keep_in_view();
-		draw(NULL);
+		draw(rep_key ? "^QQ" : NULL);
 		ed_show(&scr);
-		int k = ed_key_wait(-1);
+		int k;
+		if (rep_key) {			/* ^QQ: the key again, until another is pressed */
+			int t = ed_key_wait(rep_ms);
+			if (t >= '0' && t <= '9') { rep_ms = 40 + (t - '0') * 60; continue; }
+			if (t != K_NONE) { rep_key = 0; continue; }
+			k = rep_key;
+		} else {
+			k = ed_key_wait(-1);
+		}
+		size_t top_was = E.top;
 		bool vertical = false, keep_pend = false, stay = false, keep_carry = false;
 		size_t was = E.cur;
 		unsigned edits = E.edits;
@@ -1682,6 +1831,8 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 				delete_keep(E.bb, E.bk, true);
 				E.bb = E.bk = NOWHERE;
 				break;
+			case 'R': read_file(); break;
+			case 'W': write_block(); break;
 			case 'S': save(); break;
 			case 'D': if (save()) result = ED_CLOSE; break;
 			case 'X': if (save()) result = ED_EXIT; break;
@@ -1726,6 +1877,25 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 				break;
 			}
 			case 8: delete_keep(ls, E.cur, true); break;
+			case 'G': to_char(false, "^QG"); break;
+			case 'H': to_char(true, "^QH"); break;
+			case 'I': to_page(); break;
+			case '?': count_words(); break;
+			case 'Q': {			/* ^QQ: repeat the next key until another */
+				say(" Repeat which key? (then 0-9 for the speed, any other key stops)");
+				draw("^QQ");
+				ed_show(&scr);
+				int r = ed_key_wait(-1);
+				if (r == CTRL('K') || r == CTRL('Q') || r == CTRL('O') || r == CTRL('P') || r == CTRL('J') || r == K_ESC) {
+					say(" ^QQ repeats a key on its own, like ^C, ^Z or ^X");
+				} else {
+					E.msg[0] = 0;
+					rep_key = r;
+					rep_ms = 40 + 5 * 60;
+				}
+				stay = true;
+				break;
+			}
 			}
 			break;
 		case CTRL('O'): {
@@ -1847,6 +2017,8 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 		if (!keep_pend && !(k >= 0x20 && k < 0x7F)) E.pend = 0;
 		if (!keep_carry) E.carry = 0;
 		if (!vertical) E.want = col_of(line_start(E.cur), E.cur);
+		if (rep_key && k == rep_key && E.cur == was && E.top == top_was && E.edits == edits)
+			rep_key = 0;		/* it can't go any further */
 	}
 	buf = NULL;
 	free(E.unerase);

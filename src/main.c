@@ -443,6 +443,14 @@ static bool write_piece(fat32_file_t *f, const char *p, size_t n, bool crlf)
 	return write_all(f, out, k);
 }
 
+bool ed_io_exists(const char *path)
+{
+	fat32_file_t f;
+	if (fat32_open(&f, path) != FAT32_OK) return false;
+	fat32_close(&f);
+	return true;
+}
+
 /* write to name.tmp; then the old file becomes name.bak and name.tmp
    becomes the file, so a failed save never loses the old version */
 const char *ed_io_save(const char *path, const char *a, size_t alen,
