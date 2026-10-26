@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <setjmp.h>
+#include <dirent.h>
 #include "editor.h"
 
 static const char *keys;
@@ -135,10 +136,25 @@ bool ed_io_load(const char *path, char *buf, size_t cap, size_t *len, const char
 	return true;
 }
 
-int ed_pick_file(const char *title, const char *dir, char *path, size_t size)
+int ed_dir_names(const char *dir, char *out, size_t size)
 {
-	(void)title; (void)dir; (void)path; (void)size;
-	return -1;			/* no list on the PC: the editor asks for a name */
+	DIR *d = opendir(dir);
+	if (!d) return 0;
+	int n = 0;
+	size_t used = 0;
+	struct dirent *e;
+	while ((e = readdir(d))) {
+		if (e->d_name[0] == '.') continue;
+		size_t l = strlen(e->d_name);
+		if (used + l + 2 > size) break;
+		memcpy(out + used, e->d_name, l);
+		used += l;
+		if (e->d_type == DT_DIR) out[used++] = '/';
+		out[used++] = 0;
+		n++;
+	}
+	closedir(d);
+	return n;
 }
 
 bool ed_io_exists(const char *path)

@@ -9,6 +9,7 @@
  * only lead bytes take a column. */
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 #include <string.h>
 #include "editor.h"
 #include "core.h"
@@ -1257,6 +1258,64 @@ static void wrap_block(const char *m)
 
 static bool ask_text(const char *label, char *buf_, size_t size);
 
+/* the folder's files, shown under a question that wants a file's name,
+   as WordStar 4 did: names one after another, each ending in a 0 */
+static char *ask_names;
+static int ask_count;
+static char ask_dir[192];
+
+static int cmp_names(const void *a, const void *b)
+{
+	return strcasecmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+static void draw_names(void)
+{
+	enum { W = 16, COLS = SCR_COLS / W };
+	const char *v[256];
+	int n = 0;
+	for (const char *q = ask_names; n < ask_count && n < 256; q += strlen(q) + 1) v[n++] = q;
+	qsort(v, (size_t)n, sizeof v[0], cmp_names);
+	int row = 1, rows = SCR_ROWS - 3;	/* a heading, the names, a space below */
+	char b[SCR_COLS + 1];
+	clear_row(row, A_BOX);
+	snprintf(b, sizeof b, " Files in %.30s (type the whole name):", ask_dir);
+	put(row++, 0, A_BOX, b);
+	int fits = rows * COLS;
+	for (int r = 0; r < rows && r * COLS < n; r++, row++) {
+		clear_row(row, A_BOX);
+		for (int c = 0; c < COLS; c++) {
+			int i = r * COLS + c;
+			if (i >= n) break;
+			if (i == fits - 1 && n > fits) {
+				snprintf(b, sizeof b, " +%d more", n - i);
+				put(row, c * W, A_BOXKEY, b);
+				break;
+			}
+			snprintf(b, sizeof b, " %.*s", W - 2, v[i]);
+			put(row, c * W, v[i][strlen(v[i]) - 1] == '/' ? A_BOXKEY : A_BOX, b);
+		}
+	}
+	clear_row(row, A_BOX);
+}
+
+/* a file's name, typed in full, with the document's folder listed under
+   the question; false on Esc or no name */
+static bool ask_file(const char *label, char *name, size_t size)
+{
+	const char *slash = strrchr(E.path, '/');
+	if (slash) snprintf(ask_dir, sizeof ask_dir, "%.*s", slash == E.path ? 1 : (int)(slash - E.path), E.path);
+	else snprintf(ask_dir, sizeof ask_dir, ".");
+	enum { ROOM = 3072 };
+	ask_names = malloc(ROOM);
+	ask_count = ask_names ? ed_dir_names(ask_dir, ask_names, ROOM) : 0;
+	if (!ask_count) { free(ask_names); ask_names = NULL; }
+	bool ok = ask_text(label, name, size) && name[0];
+	free(ask_names);
+	ask_names = NULL;
+	return ok;
+}
+
 /* a file's name as typed, in the document's folder unless it starts with / */
 static void full_path(const char *name, char *out, size_t size)
 {
@@ -1268,18 +1327,9 @@ static void full_path(const char *name, char *out, size_t size)
 /* ^KR: the file's text goes in at the cursor, as it is (its marks and all) */
 static void read_file(void)
 {
-	char name[64] = "", path[192], b[SCR_COLS + 1], dir[192];
-	const char *slash = strrchr(E.path, '/');
-	snprintf(dir, sizeof dir, "%.*s", slash && slash != E.path ? (int)(slash - E.path) : 1, slash ? E.path : "/");
-	int got = ed_pick_file("Read in which file?", dir, path, sizeof path);	/* the list of documents */
-	if (got == 0) return;
-	if (got < 0) {					/* no list here: a name */
-		if (!ask_text("Read in which file?", name, sizeof name) || !name[0]) return;
-		full_path(name, path, sizeof path);
-	} else {
-		const char *base = strrchr(path, '/');
-		snprintf(name, sizeof name, "%.63s", base ? base + 1 : path);
-	}
+	char name[64] = "", path[192], b[SCR_COLS + 1];
+	if (!ask_file("Read in which file?", name, sizeof name)) return;
+	full_path(name, path, sizeof path);
 	move_gap(E.cur);
 	size_t n = 0;
 	const char *err = NULL;
@@ -1313,12 +1363,7 @@ static void write_block(void)
 {
 	char name[64] = "", path[192], b[SCR_COLS + 1];
 	if (!block_ok()) { say(" No block: mark its start with ^KB and its end with ^KK"); return; }
-	if (!ask_text("Write the block to which file?", name, sizeof name) || !name[0]) return;
-	if (!strchr(name, '.')) {			/* the document's ending, so the list shows it */
-		const char *dot = strrchr(E.path, '.');
-		if (dot && !strchr(dot, '/'))
-			strncat(name, dot, sizeof name - strlen(name) - 1);
-	}
+	if (!ask_file("Write the block to which file?", name, sizeof name)) return;
 	full_path(name, path, sizeof path);
 	if (!strcmp(path, E.path)) { say(" That's this document: use ^KS to save it"); return; }
 	if (ed_io_exists(path) && !ask_yes(" That file is there already. Replace it? (Y/N)")) return;
@@ -1556,6 +1601,7 @@ static bool ask_text(const char *label, char *buf_, size_t size)
 	for (;;) {
 		char b[SCR_COLS + 1];
 		draw(NULL);
+		if (ask_names) draw_names();
 		clear_row(0, A_MSG);
 		snprintf(b, sizeof b, " %s %s", label, buf_);
 		put(0, 0, A_MSG, b);

@@ -698,26 +698,29 @@ static bool shell_clock(uint16_t *date, uint16_t *time)
 #endif
 }
 
-/* ^KR's list of documents, over the editing screen */
-int ed_pick_file(const char *title, const char *dir, char *path, size_t size)
+/* every file in dir, for ^KR's and ^KW's question */
+int ed_dir_names(const char *dir, char *out, size_t size)
 {
-	static picker_style_t style = {
-		.filter = is_document, .noun = "document", .nouns = "documents", .preview = preview,
-	};
-	style.title = title;
-	char d[PICKER_PATH], p[PICKER_PATH];
-	snprintf(d, sizeof d, "%s", dir);
-	keyboard_set_background_poll(true);		/* the list reads the keys its own way */
-	int got = picker_run(&style, d, NULL, p);
-	while (keyboard_key_available()) keyboard_get_key();
-	keyboard_set_background_poll(false);
-	kq_head = kq_tail = 0;
-	held = 0;
-	lcd_clear_screen();
-	shown_valid = false;			/* the editor's screen, drawn afresh */
-	if (got != PICKER_CHOSEN) return 0;
-	snprintf(path, size, "%s", p);
-	return 1;
+	fat32_file_t d;
+	if (fat32_open(&d, dir) != FAT32_OK) return 0;
+	int n = 0;
+	size_t used = 0;
+	fat32_entry_t e;
+	for (;;) {
+		if (fat32_dir_read(&d, &e) != FAT32_OK || !e.filename[0]) break;
+		if (e.attr & (FAT32_ATTR_VOLUME_ID | FAT32_ATTR_HIDDEN | FAT32_ATTR_SYSTEM)) continue;
+		if (e.filename[0] == '.') continue;
+		bool isdir = (e.attr & FAT32_ATTR_DIRECTORY) != 0;
+		size_t l = strlen(e.filename);
+		if (used + l + 2 > size) break;
+		memcpy(out + used, e.filename, l);
+		used += l;
+		if (isdir) out[used++] = '/';
+		out[used++] = 0;
+		n++;
+	}
+	fat32_close(&d);
+	return n;
 }
 
 int main(void)
