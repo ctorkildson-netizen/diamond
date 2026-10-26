@@ -96,9 +96,9 @@ Diamond follows WordStar 4 wherever it can, so if you know WordStar, your finger
 - **The files are Markdown**, not WordStar's own format. WordStar wrote control codes into the file (^B for bold, ^Y for italics); Diamond writes `**` and `*`, so any program can read its documents.
 - **No `<B>` and `<K>` on the screen.** WordStar put a `<B>` in the text when you pressed ^KB. Diamond keeps the text area for your text alone; the block lights up once both ends are marked.
 - **Lines wrap by themselves**, so there are no margins or rulers to set (^OL, ^OR, ^OJ, ^OW) and no need for ^B to reformat a paragraph.
-- **Only bold and italic.** WordStar's underline (^PS), subscript and superscript (^PV, ^PT) and strikeout (^PX) have no Markdown equivalent.
+- **Only bold and italic.** WordStar's underline (^PS), subscript and superscript (^PV, ^PT) aren't in Markdown, and its strikeout (^PX) only in some versions of it, which Diamond leaves alone.
 - **^PB and ^PY work on a block**, and ^P Space returns to plain text; in WordStar they put a code at the cursor.
-- **The views are new.** WordStar 5 added a preview on ^OP; Diamond's ^OP is a reading view, and ^OV its page view.
+- **The views are new.** WordStar 4's ^OP turned on a preview of the text as it would print; Diamond's ^OP is a reading view in proportional type, and ^OV its page view. (^OD is WordStar's own, though: there it showed or hid the print codes, as Diamond shows or hides the Markdown marks.)
 - **No dot commands** (.HE, .FO, .PA and the rest): headings and the rest come from Markdown.
 - **Plain text by the file's name.** WordStar opened program files and plain text in its non-document mode (N at the opening menu); Diamond does the same for any file that doesn't end in `.md`.
 - **No file commands in ^K** yet (^KR to read in a file, ^KW to write a block out, ^KE, ^KJ, ^KF). The list of documents does that work for now.
