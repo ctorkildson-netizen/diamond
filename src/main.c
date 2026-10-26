@@ -15,6 +15,9 @@
 #include "picocalc_shell.h"
 #include "picker.h"
 #include "editor.h"
+#ifdef DIAMOND_BT
+#include "btkbd.h"		/* a Bluetooth keyboard: its keys come through sb_read_keyboard() */
+#endif
 
 volatile bool user_interrupt;	/* the keyboard driver sets it on Brk */
 
@@ -695,7 +698,14 @@ int main(void)
 	fat32_init();
 	fat32_set_time_source(shell_clock);
 	keyboard_init();
+#ifdef DIAMOND_BT
+	btkbd_init();
+	void *pad = malloc(32 * 1024);	/* leave room for what Bluetooth takes as it connects */
 	take_memory();
+	free(pad);
+#else
+	take_memory();
+#endif
 	sign_on();
 	kq_head = kq_tail = 0;
 	keyboard_set_background_poll(true);
