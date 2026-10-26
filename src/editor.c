@@ -1328,6 +1328,15 @@ static void count_words(void)
 	say(b);
 }
 
+/* after a jump: the cursor's cell lit up (as find does) until the next
+   key, so the eye finds it on a new screen */
+static void landed(size_t p)
+{
+	E.cur = p;
+	E.hl_a = p;
+	E.hl_b = p < len() ? next_char(p) : p;
+}
+
 /* ^QG, ^QH: to the next (or previous) of a character typed now */
 static void to_char(bool back, const char *name)
 {
@@ -1338,10 +1347,10 @@ static void to_char(bool back, const char *name)
 	size_t n = len();
 	if (!back) {
 		for (size_t p = next_char(E.cur); p < n; p++)
-			if (at(p) == (char)k && !hidden(p)) { E.cur = p; return; }
+			if (at(p) == (char)k && !hidden(p)) { landed(p); return; }
 	} else {
 		for (size_t p = E.cur; p-- > 0; )
-			if (at(p) == (char)k && !hidden(p)) { E.cur = p; return; }
+			if (at(p) == (char)k && !hidden(p)) { landed(p); return; }
 	}
 	char b[SCR_COLS + 1];
 	snprintf(b, sizeof b, " No '%c' %s the cursor", k, back ? "before" : "after");
@@ -1366,7 +1375,7 @@ static void to_page(void)
 		if (e == s || !line_at(e)) break;
 		s = e;
 	}
-	E.cur = s;
+	landed(s);
 }
 
 /* ------------------------------------------------------------ menus */
