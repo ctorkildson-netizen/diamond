@@ -135,6 +135,12 @@ bool ed_io_load(const char *path, char *buf, size_t cap, size_t *len, const char
 	return true;
 }
 
+int ed_pick_file(const char *title, const char *dir, char *path, size_t size)
+{
+	(void)title; (void)dir; (void)path; (void)size;
+	return -1;			/* no list on the PC: the editor asks for a name */
+}
+
 bool ed_io_exists(const char *path)
 {
 	FILE *f = fopen(path, "rb");

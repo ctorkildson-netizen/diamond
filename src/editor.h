@@ -63,6 +63,10 @@ bool ed_io_load(const char *path, char *buf, size_t cap, size_t *len, const char
    file, keeping the old one as a .bak; NULL or a message */
 const char *ed_io_save(const char *path, const char *a, size_t alen,
                        const char *b, size_t blen, bool crlf);
+/* the list of documents, starting in dir, for ^KR: 1 with the chosen
+   file's full path in path, 0 if the user backed out, -1 if there's no
+   list (then the editor asks for a name) */
+int ed_pick_file(const char *title, const char *dir, char *path, size_t size);
 /* is there a file by that name? */
 bool ed_io_exists(const char *path);
 /* remember the help level (0..3) for next time */

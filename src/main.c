@@ -698,6 +698,28 @@ static bool shell_clock(uint16_t *date, uint16_t *time)
 #endif
 }
 
+/* ^KR's list of documents, over the editing screen */
+int ed_pick_file(const char *title, const char *dir, char *path, size_t size)
+{
+	static picker_style_t style = {
+		.filter = is_document, .noun = "document", .nouns = "documents", .preview = preview,
+	};
+	style.title = title;
+	char d[PICKER_PATH], p[PICKER_PATH];
+	snprintf(d, sizeof d, "%s", dir);
+	keyboard_set_background_poll(true);		/* the list reads the keys its own way */
+	int got = picker_run(&style, d, NULL, p);
+	while (keyboard_key_available()) keyboard_get_key();
+	keyboard_set_background_poll(false);
+	kq_head = kq_tail = 0;
+	held = 0;
+	lcd_clear_screen();
+	shown_valid = false;			/* the editor's screen, drawn afresh */
+	if (got != PICKER_CHOSEN) return 0;
+	snprintf(path, size, "%s", p);
+	return 1;
+}
+
 int main(void)
 {
 	sb_init();
