@@ -28,6 +28,16 @@ such folder. When you save, the previous version is kept as a `.bak` file.
 F5 saves a screenshot in `/screenshots`. Files are dated when the shell's
 clock is set (shell v1.1 or later).
 
+## With a Bluetooth keyboard
+
+`diamond-bt.uf2` is Diamond with a Bluetooth keyboard as well as the
+PicoCalc's own; both work at once. Pair the keyboard first with **btpair**
+from [picocalc-extras](https://github.com/ctorkildson-netizen/picocalc-extras/tree/main/bluetooth),
+then run diamond-bt and press a key on the keyboard: it connects in a few
+seconds. It needs a Pico 2 W, and it's about three times the size of the
+plain `diamond.uf2` (the Bluetooth stack and the radio's firmware), so it
+loads more slowly; the plain one is the same Diamond without it.
+
 ## What it is and isn't
 
 - An editor for text. It doesn't show pictures, and it isn't a web
@@ -97,7 +107,8 @@ mkdir build && cd build
 cmake .. && make
 ```
 
-That makes `diamond.uf2`.
+That makes `diamond.uf2`. With `cmake .. -DDIAMOND_BT=ON` (in a build
+folder of its own) it makes `diamond-bt.uf2` instead.
 
 The source is in [`src/`](src/): [`editor.c`](src/editor.c) is the editing,
 with the Markdown formatting; [`reader.c`](src/reader.c) the reading and page
@@ -110,7 +121,7 @@ reading view's fonts (`src/rfonts.c`) from DejaVu Sans and Sans Mono.
 
 | Submodule | Pinned to |
 |---|---|
-| [picocalc-extras](https://github.com/ctorkildson-netizen/picocalc-extras) | v1.0 (the list of documents) |
+| [picocalc-extras](https://github.com/ctorkildson-netizen/picocalc-extras) | v1.1 (the list of documents, and the Bluetooth keyboard for diamond-bt) |
 | [picocalc-shell](https://github.com/BlairLeduc/picocalc-shell) (Blair Leduc) | v1.1 (the clock) |
 | [picocalc-text-starter](https://github.com/BlairLeduc/picocalc-text-starter) (Blair Leduc) | v0.15 plus four fixes, from the `diamond-dev` branch of [a fork](https://github.com/ctorkildson-netizen/picocalc-text-starter): FAT32 reading and writing without walking a file's chain from the start, file dates, and text clipped at the screen's edge |
 
