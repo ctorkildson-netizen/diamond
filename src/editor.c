@@ -544,6 +544,17 @@ static int text_row0(void) { return E.help >= 3 ? 9 : E.help >= 1 ? 2 : 1; }
 static int text_rows(void) { return SCR_ROWS - text_row0(); }
 
 /* how many screen lines from a down to b (a, b line starts, a <= b) */
+/* screens starting at lines a and b have no line in common */
+static bool no_common_line(size_t a, size_t b)
+{
+	if (a > b) { size_t t = a; a = b; b = t; }
+	for (int i = 0; i < text_rows(); i++) {
+		a = next_line(a);
+		if (a >= b) return false;
+	}
+	return true;
+}
+
 static int lines_between(size_t a, size_t b)
 {
 	int n = 0;
@@ -729,7 +740,11 @@ static void draw(const char *pending)
 			scr.ch[row][col++] = glyph_at(i);
 		}
 		if (cv == len() && e == len() && line_start(E.cur) == s)	/* (a full last line: the last column) */
-			scr.at[row][col < SCR_COLS ? col : SCR_COLS - 1] |= A_CURSOR;
+		{
+			int c = col < SCR_COLS ? col : SCR_COLS - 1;
+			if (E.hl_a == cv && E.hl_b > cv) scr.at[row][c] = A_FOUND;
+			scr.at[row][c] |= A_CURSOR;
+		}
 		have = e != s && line_at(e) && !(e == len() && at(e - 1) != '\n');
 		s = e;
 	}
@@ -1328,15 +1343,6 @@ static void count_words(void)
 	say(b);
 }
 
-/* after a jump: the cursor's cell lit up (as find does) until the next
-   key, so the eye finds it on a new screen */
-static void landed(size_t p)
-{
-	E.cur = p;
-	E.hl_a = p;
-	E.hl_b = p < len() ? next_char(p) : p;
-}
-
 /* ^QG, ^QH: to the next (or previous) of a character typed now */
 static void to_char(bool back, const char *name)
 {
@@ -1347,10 +1353,10 @@ static void to_char(bool back, const char *name)
 	size_t n = len();
 	if (!back) {
 		for (size_t p = next_char(E.cur); p < n; p++)
-			if (at(p) == (char)k && !hidden(p)) { landed(p); return; }
+			if (at(p) == (char)k && !hidden(p)) { E.cur = p; return; }
 	} else {
 		for (size_t p = E.cur; p-- > 0; )
-			if (at(p) == (char)k && !hidden(p)) { landed(p); return; }
+			if (at(p) == (char)k && !hidden(p)) { E.cur = p; return; }
 	}
 	char b[SCR_COLS + 1];
 	snprintf(b, sizeof b, " No '%c' %s the cursor", k, back ? "before" : "after");
@@ -1375,7 +1381,7 @@ static void to_page(void)
 		if (e == s || !line_at(e)) break;
 		s = e;
 	}
-	landed(s);
+	E.cur = s;
 }
 
 /* ------------------------------------------------------------ menus */
@@ -1725,8 +1731,19 @@ int ed_run(const char *path, char *text, size_t n, size_t capacity, int help_lev
 
 	int result = -1;
 	int rep_key = 0, rep_ms = 0;	/* ^QQ */
+	size_t shown_top = NOWHERE;	/* the screen last shown, to tell a jump */
+	unsigned shown_edits = 0;
 	while (result < 0) {
 		keep_in_view();
+		/* a whole new screen, with nothing to go by: the cursor's cell
+		   lights up (as find's does) until the next key */
+		if (shown_top != NOWHERE && E.top != shown_top && E.edits == shown_edits &&
+		    E.hl_a == E.hl_b && no_common_line(E.top, shown_top)) {
+			E.hl_a = E.cur;
+			E.hl_b = E.cur < len() ? next_char(E.cur) : E.cur + 1;
+		}
+		shown_top = E.top;
+		shown_edits = E.edits;
 		draw(rep_key ? "^QQ" : NULL);
 		ed_show(&scr);
 		int k;
