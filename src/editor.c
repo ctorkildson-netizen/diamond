@@ -1259,11 +1259,15 @@ static void wrap_block(const char *m)
 static bool ask_text(const char *label, char *buf_, size_t size);
 
 /* the folder's files, shown under a question that wants a file's name,
-   as WordStar 4 did: each entry is D or F, the name, a 0, its size in
-   bytes as digits, a 0 */
-static char *ask_names;
+   as WordStar 4 did; ^X goes down into the list to choose one */
+enum { LIST_ROOM = 3072, LIST_MAX = 256, LIST_W = 21, LIST_COLS = 3, LIST_ROWS = SCR_ROWS - 3 };
+static char *ask_names;		/* each: D or F, the name, a 0, the size as digits, a 0 */
+static const char *ask_v[LIST_MAX];	/* the entries, folders first, then by name */
 static int ask_count;
-static char ask_dir[192];
+static int ask_sel = -1;	/* the entry chosen in the list, or -1: typing */
+static int ask_first;		/* the first row shown */
+static char ask_dir[192];	/* the folder listed */
+static char ask_home[192];	/* the document's folder */
 
 static const char *entry_size(const char *e) { return e + strlen(e) + 1; }
 
@@ -1285,38 +1289,99 @@ static void size_text(char *b, size_t n, unsigned long v)
 	else snprintf(b, n, "%luM", (v + 999999) / 1000000);
 }
 
+/* list a folder: sub is a folder inside the document's ("" for its own) */
+static void list_folder(const char *sub)
+{
+	if (sub[0]) snprintf(ask_dir, sizeof ask_dir, "%.90s%s%.*s", ask_home,
+	                     strcmp(ask_home, "/") ? "/" : "", (int)(strlen(sub) > 90 ? 90 : strlen(sub) - 1), sub);
+	else snprintf(ask_dir, sizeof ask_dir, "%s", ask_home);
+	ask_count = ask_names ? ed_dir_names(ask_dir, ask_names, LIST_ROOM) : 0;
+	if (ask_count > LIST_MAX) ask_count = LIST_MAX;
+	const char *q = ask_names;
+	for (int n = 0; n < ask_count; n++) {
+		ask_v[n] = q;
+		q = entry_size(q) + strlen(entry_size(q)) + 1;
+	}
+	qsort(ask_v, (size_t)ask_count, sizeof ask_v[0], cmp_names);
+	ask_sel = -1;
+	ask_first = 0;
+}
+
+/* how many entries show from ask_first on, and whether a "+N more" ends them */
+static int list_shown(bool *more)
+{
+	int start = ask_first * LIST_COLS, cells = LIST_ROWS * LIST_COLS;
+	*more = ask_count - start > cells;
+	return *more ? cells - 1 : ask_count - start;
+}
+
 static void draw_names(void)
 {
-	enum { W = 21, COLS = 3 };
-	const char *v[256];
-	int n = 0;
-	for (const char *q = ask_names; n < ask_count && n < 256; q = entry_size(q) + strlen(entry_size(q)) + 1)
-		v[n++] = q;
-	qsort(v, (size_t)n, sizeof v[0], cmp_names);
-	int row = 1, rows = SCR_ROWS - 3;	/* a space, the heading, the names */
+	bool more;
+	int start = ask_first * LIST_COLS, shown_n = list_shown(&more);
 	char b[SCR_COLS + 1], sz[16];
+	int row = 1;
 	clear_row(row++, A_TEXT);
 	clear_row(row, A_TEXT);
 	put(row, 0, A_BOLD, "DIRECTORY");
-	snprintf(b, sizeof b, "%.50s", ask_dir);
-	put(row++, 12, A_TEXT, b);
-	int fits = rows * COLS;
-	for (int r = 0; r < rows; r++, row++) {
+	snprintf(b, sizeof b, "%.36s", ask_dir);
+	put(row, 12, A_TEXT, b);
+	if (ask_count)
+		put(row, SCR_COLS - 15, A_TEXT, ask_sel < 0 ? "^X to choose" : "Enter takes it");
+	row++;
+	for (int r = 0; r < LIST_ROWS; r++, row++) {
 		clear_row(row, A_TEXT);
-		for (int c = 0; c < COLS; c++) {
-			int i = r * COLS + c;
-			if (i >= n) continue;
-			if (i == fits - 1 && n > fits) {
-				snprintf(b, sizeof b, "  +%d more", n - i);
-				put(row, c * W, A_BOLD, b);
-				continue;
+		for (int c = 0; c < LIST_COLS; c++) {
+			int k = r * LIST_COLS + c, i = start + k;
+			if (k == shown_n && more) {
+				snprintf(b, sizeof b, "  +%d more", ask_count - i);
+				put(row, c * LIST_W, A_BOLD, b);
 			}
-			if (v[i][0] == 'D') snprintf(sz, sizeof sz, "/");
-			else size_text(sz, sizeof sz, strtoul(entry_size(v[i]), NULL, 10));
-			snprintf(b, sizeof b, "%4s %-.15s", sz, v[i] + 1);
-			put(row, c * W, A_TEXT, b);
+			if (k >= shown_n) continue;
+			const char *e = ask_v[i];
+			if (e[0] == 'D') snprintf(sz, sizeof sz, "/");
+			else size_text(sz, sizeof sz, strtoul(entry_size(e), NULL, 10));
+			snprintf(b, sizeof b, "%4s %-.15s", sz, e + 1);
+			put(row, c * LIST_W, A_TEXT, b);
+			if (i == ask_sel)		/* the one chosen: lit up, as a jump's cursor is */
+				for (int x = 5; x < 5 + (int)strlen(e + 1) && x < LIST_W - 1; x++)
+					scr.at[row][c * LIST_W + x] = A_FOUND | A_CURSOR;
 		}
 	}
+}
+
+/* a key while choosing in the list: true when the answer is complete */
+static bool list_key(int k, char *answer, size_t size)
+{
+	int n = ask_count;
+	switch (k) {
+	case CTRL('E'): case K_UP:
+		if (ask_sel < LIST_COLS) ask_sel = -1;	/* off the top: back to typing */
+		else ask_sel -= LIST_COLS;
+		break;
+	case CTRL('X'): case K_DOWN: if (ask_sel + LIST_COLS < n) ask_sel += LIST_COLS; break;
+	case CTRL('S'): case K_LEFT: if (ask_sel > 0) ask_sel--; break;
+	case CTRL('D'): case K_RIGHT: if (ask_sel + 1 < n) ask_sel++; break;
+	case K_ESC: case CTRL('U'): ask_sel = -1; break;
+	case K_ENTER: {
+		const char *e = ask_v[ask_sel];
+		char *cut = strrchr(answer, '/');	/* keep the folders already chosen */
+		size_t keep = cut ? (size_t)(cut - answer + 1) : 0;
+		snprintf(answer + keep, size - keep, "%s%s", e + 1, e[0] == 'D' ? "/" : "");
+		if (e[0] != 'D') return true;
+		list_folder(answer);			/* a folder: its files */
+		break;
+	}
+	}
+	if (ask_sel < 0) return false;
+	while (ask_sel < ask_first * LIST_COLS) ask_first--;	/* keep it in view */
+	for (;;) {
+		bool more;
+		int shown_n = list_shown(&more);
+		if (ask_sel < ask_first * LIST_COLS + shown_n) break;
+		ask_first++;
+	}
+	return false;
 }
 
 /* a file's name, typed in full, with the document's folder listed under
@@ -1324,15 +1389,14 @@ static void draw_names(void)
 static bool ask_file(const char *label, char *name, size_t size)
 {
 	const char *slash = strrchr(E.path, '/');
-	if (slash) snprintf(ask_dir, sizeof ask_dir, "%.*s", slash == E.path ? 1 : (int)(slash - E.path), E.path);
-	else snprintf(ask_dir, sizeof ask_dir, ".");
-	enum { ROOM = 3072 };
-	ask_names = malloc(ROOM);
-	ask_count = ask_names ? ed_dir_names(ask_dir, ask_names, ROOM) : 0;
-	if (!ask_count) { free(ask_names); ask_names = NULL; }
+	if (slash) snprintf(ask_home, sizeof ask_home, "%.*s", slash == E.path ? 1 : (int)(slash - E.path), E.path);
+	else snprintf(ask_home, sizeof ask_home, ".");
+	ask_names = malloc(LIST_ROOM);
+	if (ask_names) list_folder("");
 	bool ok = ask_text(label, name, size) && name[0];
 	free(ask_names);
 	ask_names = NULL;
+	ask_sel = -1;
 	return ok;
 }
 
@@ -1626,9 +1690,15 @@ static bool ask_text(const char *label, char *buf_, size_t size)
 		snprintf(b, sizeof b, " %s %s", label, buf_);
 		put(0, 0, A_MSG, b);
 		int c = (int)strlen(b);
-		if (c < SCR_COLS) scr.at[0][c] |= A_CURSOR;
+		if (c < SCR_COLS && ask_sel < 0) scr.at[0][c] |= A_CURSOR;
 		ed_show(&scr);
 		int k = ed_key_wait(-1);
+		if (ask_names && ask_sel >= 0) {	/* choosing in the list */
+			if (list_key(k, buf_, size)) return true;
+			n = strlen(buf_);
+			continue;
+		}
+		if (ask_names && ask_count && (k == CTRL('X') || k == K_DOWN)) { ask_sel = 0; continue; }
 		if (k == K_ESC) return false;
 		if (k == K_ENTER) return true;
 		if (k == K_BS) { if (n) buf_[--n] = 0; continue; }

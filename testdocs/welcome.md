@@ -86,7 +86,7 @@ A link looks like this in the reading view: [the PicoCalc forum](https://forum.c
 - **^KS** saves and carries on; **^KD** saves and goes back to the list of documents; **^KX** saves and goes back to the shell; **^KQ** closes without saving.
 - Saving keeps the previous version as a `.bak` file.
 - **^K0** to **^K9** set place markers, and **^Q0** to **^Q9** go back to them.
-- **^KR** reads another file in at the cursor, and **^KW** writes the block to a file of its own. Both list the files in this document's folder, and you type the whole name, ending and all (`notes.md`, not `notes`); a name that starts with / can be in another folder.
+- **^KR** reads another file in at the cursor, and **^KW** writes the block to a file of its own. Both list the files in this document's folder, and you type the whole name, ending and all (`notes.md`, not `notes`); a name that starts with / can be in another folder. Or press **^X** to go down into the list, move to a file with the arrows (or ^E ^S ^D ^X) and press Enter; choosing a folder lists its files.
 - **^Q?** counts the words and characters (not counting the Markdown marks).
 - **^QQ** repeats a command until you press a key: ^QQ^C pages down through the document, for reading. While it repeats, 0 to 9 set the speed, from fast to slow.
 - **F5** saves a screenshot in `/screenshots`, as a picture and as text.
