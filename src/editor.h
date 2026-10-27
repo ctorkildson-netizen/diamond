@@ -63,8 +63,9 @@ bool ed_io_load(const char *path, char *buf, size_t cap, size_t *len, const char
    file, keeping the old one as a .bak; NULL or a message */
 const char *ed_io_save(const char *path, const char *a, size_t alen,
                        const char *b, size_t blen, bool crlf);
-/* the names of the files (and folders, ending in /) in dir, one after
-   another in out, each ending in a 0; returns how many fitted */
+/* the files and folders in dir, one after another in out: each is D (a
+   folder) or F, the name, a 0, its size in bytes as digits, a 0; returns
+   how many fitted */
 int ed_dir_names(const char *dir, char *out, size_t size);
 /* is there a file by that name? */
 bool ed_io_exists(const char *path);

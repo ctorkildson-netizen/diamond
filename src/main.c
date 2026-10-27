@@ -712,11 +712,12 @@ int ed_dir_names(const char *dir, char *out, size_t size)
 		if (e.filename[0] == '.') continue;
 		bool isdir = (e.attr & FAT32_ATTR_DIRECTORY) != 0;
 		size_t l = strlen(e.filename);
-		if (used + l + 2 > size) break;
+		if (used + l + 14 > size) break;
+		out[used++] = isdir ? 'D' : 'F';
 		memcpy(out + used, e.filename, l);
 		used += l;
-		if (isdir) out[used++] = '/';
 		out[used++] = 0;
+		used += (size_t)snprintf(out + used, 12, "%lu", isdir ? 0ul : (unsigned long)e.size) + 1;
 		n++;
 	}
 	fat32_close(&d);

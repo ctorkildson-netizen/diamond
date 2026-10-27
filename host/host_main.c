@@ -11,6 +11,7 @@
 #include <string.h>
 #include <setjmp.h>
 #include <dirent.h>
+#include <sys/stat.h>
 #include "editor.h"
 
 static const char *keys;
@@ -146,11 +147,16 @@ int ed_dir_names(const char *dir, char *out, size_t size)
 	while ((e = readdir(d))) {
 		if (e->d_name[0] == '.') continue;
 		size_t l = strlen(e->d_name);
-		if (used + l + 2 > size) break;
+		if (used + l + 14 > size) break;
+		char p[512];
+		struct stat st;
+		snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+		bool isdir = stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+		out[used++] = isdir ? 'D' : 'F';
 		memcpy(out + used, e->d_name, l);
 		used += l;
-		if (e->d_type == DT_DIR) out[used++] = '/';
 		out[used++] = 0;
+		used += (size_t)snprintf(out + used, 12, "%lu", isdir ? 0ul : (unsigned long)st.st_size) + 1;
 		n++;
 	}
 	closedir(d);

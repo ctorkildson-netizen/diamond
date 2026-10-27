@@ -1259,44 +1259,64 @@ static void wrap_block(const char *m)
 static bool ask_text(const char *label, char *buf_, size_t size);
 
 /* the folder's files, shown under a question that wants a file's name,
-   as WordStar 4 did: names one after another, each ending in a 0 */
+   as WordStar 4 did: each entry is D or F, the name, a 0, its size in
+   bytes as digits, a 0 */
 static char *ask_names;
 static int ask_count;
 static char ask_dir[192];
 
+static const char *entry_size(const char *e) { return e + strlen(e) + 1; }
+
+/* folders first, as WordStar had them, then by name */
 static int cmp_names(const void *a, const void *b)
 {
-	return strcasecmp(*(const char *const *)a, *(const char *const *)b);
+	const char *x = *(const char *const *)a, *y = *(const char *const *)b;
+	if (x[0] != y[0]) return x[0] == 'D' ? -1 : 1;
+	return strcasecmp(x + 1, y + 1);
+}
+
+/* WordStar's sizes: .4k, 3.5k, 94k */
+static void size_text(char *b, size_t n, unsigned long v)
+{
+	unsigned long t = (v + 99) / 100;	/* tenths of a k, rounded up */
+	if (t < 10) snprintf(b, n, ".%luk", t ? t : 1);
+	else if (t < 100) snprintf(b, n, "%lu.%luk", t / 10, t % 10);
+	else if (v < 1000000) snprintf(b, n, "%luk", (v + 999) / 1000);
+	else snprintf(b, n, "%luM", (v + 999999) / 1000000);
 }
 
 static void draw_names(void)
 {
-	enum { W = 16, COLS = SCR_COLS / W };
+	enum { W = 21, COLS = 3 };
 	const char *v[256];
 	int n = 0;
-	for (const char *q = ask_names; n < ask_count && n < 256; q += strlen(q) + 1) v[n++] = q;
+	for (const char *q = ask_names; n < ask_count && n < 256; q = entry_size(q) + strlen(entry_size(q)) + 1)
+		v[n++] = q;
 	qsort(v, (size_t)n, sizeof v[0], cmp_names);
-	int row = 1, rows = SCR_ROWS - 3;	/* a heading, the names, a space below */
-	char b[SCR_COLS + 1];
-	clear_row(row, A_BOX);
-	snprintf(b, sizeof b, " Files in %.30s (type the whole name):", ask_dir);
-	put(row++, 0, A_BOX, b);
+	int row = 1, rows = SCR_ROWS - 3;	/* a space, the heading, the names */
+	char b[SCR_COLS + 1], sz[16];
+	clear_row(row++, A_TEXT);
+	clear_row(row, A_TEXT);
+	put(row, 0, A_BOLD, "DIRECTORY");
+	snprintf(b, sizeof b, "%.50s", ask_dir);
+	put(row++, 12, A_TEXT, b);
 	int fits = rows * COLS;
-	for (int r = 0; r < rows && r * COLS < n; r++, row++) {
-		clear_row(row, A_BOX);
+	for (int r = 0; r < rows; r++, row++) {
+		clear_row(row, A_TEXT);
 		for (int c = 0; c < COLS; c++) {
 			int i = r * COLS + c;
-			if (i >= n) break;
+			if (i >= n) continue;
 			if (i == fits - 1 && n > fits) {
-				snprintf(b, sizeof b, " +%d more", n - i);
-				put(row, c * W, A_BOXKEY, b);
-				break;
+				snprintf(b, sizeof b, "  +%d more", n - i);
+				put(row, c * W, A_BOLD, b);
+				continue;
 			}
-			snprintf(b, sizeof b, " %.*s", W - 2, v[i]);
-			put(row, c * W, v[i][strlen(v[i]) - 1] == '/' ? A_BOXKEY : A_BOX, b);
+			if (v[i][0] == 'D') snprintf(sz, sizeof sz, "/");
+			else size_text(sz, sizeof sz, strtoul(entry_size(v[i]), NULL, 10));
+			snprintf(b, sizeof b, "%4s %-.15s", sz, v[i] + 1);
+			put(row, c * W, A_TEXT, b);
 		}
 	}
-	clear_row(row, A_BOX);
 }
 
 /* a file's name, typed in full, with the document's folder listed under
