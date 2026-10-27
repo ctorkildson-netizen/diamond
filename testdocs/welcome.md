@@ -107,6 +107,7 @@ Diamond follows WordStar 4 wherever it can, so if you know WordStar, your finger
 - **No dot commands** (.HE, .FO, .PA and the rest): headings and the rest come from Markdown.
 - **Plain text by the file's name.** WordStar opened program files and plain text in its non-document mode (N at the opening menu); Diamond does the same for any file that doesn't end in `.md`.
 - **Fewer file commands in ^K.** ^KR and ^KW are there, but not ^KE, ^KJ, ^KO or ^KF: the list of documents does that work.
+- **A folder in the list opens.** Choosing a folder with ^X at ^KR or ^KW lists its files, to choose from; WordStar put the folder's name in the answer and left you to type the rest.
 - **Esc backs out** of a command that's asking you something ("Find?", "Close without saving?"); in WordStar, ^U did that as well as unerasing.
 
 ## The end
