@@ -638,7 +638,7 @@ static void sign_on(void)
 #define UP 0
 #endif
 	static const struct { int row; uint16_t colour; const char *text; } lines[] = {
-		{ 1 - UP, 0xC618, "Diamond Release 0.1  Serial #RP2350W" },
+		{ 1 - UP, 0xC618, "Diamond Release 0.3.1  Serial #RP2350W" },
 		{ 2 - UP, 0xC618, "Copyright (C) 2026 Chris Torkildson" },
 		{ 3 - UP, 0xC618, "MIT licence: free to use and share" },
 		{ 5 - UP, 0xC618, "PicoCalc, 320 x 320" },
