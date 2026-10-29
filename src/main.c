@@ -606,16 +606,44 @@ static void message(const char *a, const char *b, const char *c)
 	ed_key_wait(-1);
 }
 
+#ifdef DIAMOND_BT
+/* the sign-on screen's Bluetooth line: what the keyboard is doing, so a
+   keyboard that isn't coming is no mystery (it changes as it connects) */
+static void bt_line(void)
+{
+	char b[41];
+	const char *name = btkbd_name();
+	switch (btkbd_state()) {
+	case BTKBD_OFF: snprintf(b, sizeof b, "Bluetooth: the radio didn't start"); break;
+	case BTKBD_STARTING: snprintf(b, sizeof b, "Bluetooth: starting"); break;
+	case BTKBD_IDLE: snprintf(b, sizeof b, "Bluetooth: none paired (pair in btpair)"); break;
+	case BTKBD_CONNECTED: snprintf(b, sizeof b, "Bluetooth: %s, connected", name); break;
+	default: snprintf(b, sizeof b, "Bluetooth: waiting for %s", name[0] ? name : "the keyboard"); break;
+	}
+	char line[41];
+	snprintf(line, sizeof line, "%-40s", b);
+	lcd_set_foreground(0xC618);
+	put_text(0, 7, line);
+}
+#endif
+
 /* the sign-on screen, after WordStar's: a couple of seconds, or a key */
 static void sign_on(void)
 {
+	/* (diamond-bt moves these up a row to fit its Bluetooth line, row 7,
+	   above the diamond) */
+#ifdef DIAMOND_BT
+#define UP 1
+#else
+#define UP 0
+#endif
 	static const struct { int row; uint16_t colour; const char *text; } lines[] = {
-		{ 1, 0xC618, "Diamond Release 0.1  Serial #RP2350W" },
-		{ 2, 0xC618, "Copyright (C) 2026 Chris Torkildson" },
-		{ 3, 0xC618, "MIT licence: free to use and share" },
-		{ 5, 0xC618, "PicoCalc, 320 x 320" },
-		{ 6, 0xC618, "No printer (it saves for Word)" },
-		{ 7, 0xC618, NULL },		/* the room for text, filled in below */
+		{ 1 - UP, 0xC618, "Diamond Release 0.1  Serial #RP2350W" },
+		{ 2 - UP, 0xC618, "Copyright (C) 2026 Chris Torkildson" },
+		{ 3 - UP, 0xC618, "MIT licence: free to use and share" },
+		{ 5 - UP, 0xC618, "PicoCalc, 320 x 320" },
+		{ 6 - UP, 0xC618, "No printer (it saves for Word)" },
+		{ 7 - UP, 0xC618, NULL },		/* the room for text, filled in below */
 		{ 11, 0xFFFF, "Diamond" },
 		{ 15, 0x8410, "after WordStar, by MicroPro" },
 		{ 18, 0xC618, "Word wrap, the WordStar keys, and" },
@@ -638,7 +666,14 @@ static void sign_on(void)
 	}
 	lcd_set_foreground(0xC618);
 	put_text(0, 22, "_");
+#ifdef DIAMOND_BT
+	for (int t = 0; t < 25; t++) {			/* (the line kept up to date) */
+		bt_line();
+		if (ed_key_wait(100) != K_NONE) break;
+	}
+#else
 	ed_key_wait(2500);
+#endif
 }
 
 static void to_shell(void)
