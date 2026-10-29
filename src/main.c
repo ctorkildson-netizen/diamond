@@ -38,6 +38,7 @@ static bool ctrl_used, sticky;
 static void show_sticky(bool on);
 static uint8_t held;			/* the key held down (0: none) */
 static int held_key;			/* what it gives */
+static bool held_shift;			/* Shift was down when it went down */
 static absolute_time_t next_repeat;
 
 #define REPEAT_DELAY_MS 450
@@ -107,9 +108,15 @@ static void kbd_poll(void)
 			kq_put(k);
 			held = code;
 			held_key = k;
+			held_shift = m_shift;
 			next_repeat = make_timeout_time_ms(REPEAT_DELAY_MS);
-		} else if (up && code == held) {
-			held = 0;
+		} else if (up && held) {
+			/* The keyboard names a key by what it types at the moment, so
+			   a key pressed and let go on different sides of Shift comes
+			   up under another name ('q' down, 'Q' up; '(' down, '9' up).
+			   Then it's still the held key going up. */
+			if (code == held || tolower(code) == tolower(held) || m_shift != held_shift)
+				held = 0;
 		}
 	}
 	if (held && time_reached(next_repeat)) {
@@ -575,16 +582,18 @@ static bool ask_line(const char *q, char *out, size_t n)
 	lcd_set_foreground(0x8410);
 	put_text(1, 17, "Enter: done   Esc: never mind");
 	for (;;) {
+		/* (37 characters at most, and the cursor after them: column 38;
+		   the padding clears what a longer name left) */
 		char shown_[41];
 		snprintf(shown_, sizeof shown_, "%-38s", out);
 		lcd_set_foreground(0xFFE0);
 		put_text(1, 15, shown_);
-		lcd_putc((uint8_t)(1 + (len < 37 ? len : 37)), 15, '_');
+		lcd_putc((uint8_t)(1 + len), 15, '_');
 		int k = ed_key_wait(-1);
 		if (k == K_ESC) return false;
 		if (k == K_ENTER) return len > 0;
 		if (k == K_BS) { if (len) out[--len] = 0; continue; }
-		if (k >= 0x20 && k < 0x7F && k != '/' && k != '\\' && len + 1 < n) {
+		if (k >= 0x20 && k < 0x7F && k != '/' && k != '\\' && len + 1 < n && len < 37) {
 			out[len++] = (char)k;
 			out[len] = 0;
 		}
@@ -749,7 +758,7 @@ int main(void)
 	static const picker_style_t style = {
 		.title = "Diamond", .filter = is_document,
 		.noun = "document", .nouns = "documents", .preview = preview,
-		.keys = "nN", .keys_help = list_keys,
+		.keys = "nN", .keys_help = list_keys, .keys_footer = "N: new",
 	};
 	char dir[PICKER_PATH] = "/documents", path[PICKER_PATH];
 	char last[FAT32_MAX_FILENAME_LEN + 1] = "";
