@@ -11,7 +11,7 @@
 #include "drivers/font.h"
 #include "drivers/keyboard.h"
 #include "drivers/southbridge.h"
-#include "drivers/fat32.h"
+#include "drivers/filesystem.h"
 #include "picocalc_shell.h"
 #include "picker.h"
 #include "editor.h"
@@ -209,7 +209,7 @@ static void draw_row(const screen_t *s, int r)
 
 /* ------------------------------------------------------------ screenshots */
 
-static bool write_all(fat32_file_t *f, const char *p, size_t n);
+static bool write_all(FIL *f, const char *p, size_t n);
 
 static void put_le(uint8_t *p, uint32_t v, int n) { for (int i = 0; i < n; i++) p[i] = (uint8_t)(v >> (8 * i)); }
 
@@ -219,13 +219,11 @@ static void put_le(uint8_t *p, uint32_t v, int n) { for (int i = 0; i < n; i++) 
 static const char *shot_name(char *path, size_t size)
 {
 	static char name[48];
-	fat32_file_t f;
-	if (fat32_dir_create(&f, "/screenshots") == FAT32_OK) fat32_close(&f);
+	f_mkdir("/screenshots");			/* (FR_EXIST if it's there) */
 	int n;
 	for (n = 1; n < 1000; n++) {
 		snprintf(path, size, "/screenshots/diamond-%03d.bmp", n);
-		if (fat32_open(&f, path) != FAT32_OK) break;
-		fat32_close(&f);
+		if (f_stat(path, NULL) != FR_OK) break;
 	}
 	if (n == 1000) return NULL;
 	snprintf(name, sizeof name, "diamond-%03d", n);
@@ -247,8 +245,8 @@ const char *ed_screenshot_pixels(const char *info)
 	put_le(hdr + 26, 1, 2);
 	put_le(hdr + 28, 24, 2);
 	put_le(hdr + 34, W * H * 3, 4);
-	fat32_file_t f;
-	if (fat32_create(&f, path) != FAT32_OK) return NULL;
+	FIL f;
+	if (f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return NULL;
 	bool ok = write_all(&f, (const char *)hdr, sizeof hdr);
 	static uint16_t row[SCR_PX];
 	static uint8_t line[SCR_PX * 3];
@@ -262,31 +260,23 @@ const char *ed_screenshot_pixels(const char *info)
 		}
 		ok = write_all(&f, (const char *)line, sizeof line);
 	}
-	fat32_close(&f);
+	if (f_close(&f) != FR_OK) ok = false;
 	if (!ok) return NULL;
 	snprintf(path, sizeof path, "/screenshots/%s.txt", name);
-	if (fat32_create(&f, path) != FAT32_OK) return NULL;
+	if (f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return NULL;
 	ok = write_all(&f, "Diamond screenshot\r\n\r\n", 22);
 	for (const char *p = info; ok && *p; p++)
 		ok = *p == '\n' ? write_all(&f, "\r\n", 2) : write_all(&f, p, 1);
-	fat32_close(&f);
+	if (f_close(&f) != FR_OK) ok = false;
 	return ok ? name : NULL;
 }
 
 const char *ed_screenshot(const screen_t *s, const char *info)
 {
-	static char name[48];
 	char path[64];
-	fat32_file_t f;
-	if (fat32_dir_create(&f, "/screenshots") == FAT32_OK) fat32_close(&f);
-	int n;
-	for (n = 1; n < 1000; n++) {
-		snprintf(path, sizeof path, "/screenshots/diamond-%03d.bmp", n);
-		if (fat32_open(&f, path) != FAT32_OK) break;
-		fat32_close(&f);
-	}
-	if (n == 1000) return NULL;
-	snprintf(name, sizeof name, "diamond-%03d", n);
+	const char *name = shot_name(path, sizeof path);
+	if (!name) return NULL;
+	FIL f;
 
 	/* the picture: 320x320, 24-bit, bottom row first */
 	const int W = SCR_COLS * 5, H = SCR_ROWS * GLYPH_HEIGHT;
@@ -299,7 +289,7 @@ const char *ed_screenshot(const screen_t *s, const char *info)
 	put_le(hdr + 26, 1, 2);
 	put_le(hdr + 28, 24, 2);
 	put_le(hdr + 34, W * H * 3, 4);
-	if (fat32_create(&f, path) != FAT32_OK) return NULL;
+	if (f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return NULL;
 	bool ok = write_all(&f, (const char *)hdr, sizeof hdr);
 	static uint8_t line[SCR_COLS * 5 * 3];
 	for (int r = SCR_ROWS - 1; ok && r >= 0; r--) {
@@ -314,13 +304,13 @@ const char *ed_screenshot(const screen_t *s, const char *info)
 			ok = write_all(&f, (const char *)line, sizeof line);
 		}
 	}
-	fat32_close(&f);
+	if (f_close(&f) != FR_OK) ok = false;
 	if (!ok) return NULL;
 
 	/* the text: the screen, where the cursor is, what each cell is drawn
 	   as, and Diamond's state */
 	snprintf(path, sizeof path, "/screenshots/%s.txt", name);
-	if (fat32_create(&f, path) != FAT32_OK) return NULL;
+	if (f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return NULL;
 	char b[160];
 	int cr = -1, cc = -1;
 	ok = write_all(&f, "Diamond screenshot\r\n\r\n", 22);
@@ -345,7 +335,7 @@ const char *ed_screenshot(const screen_t *s, const char *info)
 	if (ok) ok = write_all(&f, "\r\n", 2);
 	for (const char *p = info; ok && *p; p++)
 		ok = *p == '\n' ? write_all(&f, "\r\n", 2) : write_all(&f, p, 1);
-	fat32_close(&f);
+	if (f_close(&f) != FR_OK) ok = false;
 	return ok ? name : NULL;
 }
 
@@ -397,22 +387,23 @@ static void take_memory(void)
 
 bool ed_io_load(const char *path, char *buf, size_t cap, size_t *len, const char **err)
 {
-	fat32_file_t f;
-	if (fat32_open(&f, path) != FAT32_OK) { *err = "can't be opened"; return false; }
-	uint32_t n = fat32_size(&f);
+	FIL f;
+	if (f_open(&f, path, FA_READ) != FR_OK) { *err = "can't be opened"; return false; }
+	FSIZE_t n = f_size(&f);
 	if (n > cap) {
-		fat32_close(&f);
+		f_close(&f);
 		static char m[40];
 		snprintf(m, sizeof m, "is too big (%u KB at most)", (unsigned)(cap / 1024));
 		*err = m;
 		return false;
 	}
-	size_t got = 0, total = 0;
+	UINT got = 0;
+	size_t total = 0;
 	while (total < n) {
-		if (fat32_read(&f, buf + total, n - total, &got) != FAT32_OK || got == 0) break;
+		if (f_read(&f, buf + total, (UINT)(n - total), &got) != FR_OK || got == 0) break;
 		total += got;
 	}
-	fat32_close(&f);
+	f_close(&f);
 	if (total != n) { *err = "couldn't be read"; return false; }
 	*len = n;
 	return true;
@@ -427,18 +418,18 @@ static void bak_name(char *out, size_t n, const char *path)
 	strncat(out, ".bak", n - strlen(out) - 1);
 }
 
-static bool write_all(fat32_file_t *f, const char *p, size_t n)
+static bool write_all(FIL *f, const char *p, size_t n)
 {
-	size_t done;
+	UINT done;
 	while (n) {
-		if (fat32_write(f, p, n, &done) != FAT32_OK || done == 0) return false;
+		if (f_write(f, p, (UINT)n, &done) != FR_OK || done == 0) return false;
 		p += done;
 		n -= done;
 	}
 	return true;
 }
 
-static bool write_piece(fat32_file_t *f, const char *p, size_t n, bool crlf)
+static bool write_piece(FIL *f, const char *p, size_t n, bool crlf)
 {
 	if (!crlf) return write_all(f, p, n);
 	static char out[2048];
@@ -453,10 +444,7 @@ static bool write_piece(fat32_file_t *f, const char *p, size_t n, bool crlf)
 
 bool ed_io_exists(const char *path)
 {
-	fat32_file_t f;
-	if (fat32_open(&f, path) != FAT32_OK) return false;
-	fat32_close(&f);
-	return true;
+	return f_stat(path, NULL) == FR_OK;
 }
 
 /* write to name.tmp; then the old file becomes name.bak and name.tmp
@@ -467,19 +455,16 @@ const char *ed_io_save(const char *path, const char *a, size_t alen,
 	char tmp[PICKER_PATH + 8], bak[PICKER_PATH + 8];
 	snprintf(tmp, sizeof tmp, "%s.tmp", path);
 	bak_name(bak, sizeof bak, path);
-	fat32_delete(tmp);
-	fat32_file_t f;
-	if (fat32_create(&f, tmp) != FAT32_OK) return "the card can't be written";
+	FIL f;
+	if (f_open(&f, tmp, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return "the card can't be written";
 	bool ok = write_piece(&f, a, alen, crlf) && write_piece(&f, b, blen, crlf);
-	fat32_close(&f);
-	if (!ok) { fat32_delete(tmp); return "the card is full, or failed"; }
-	fat32_file_t old;
-	if (fat32_open(&old, path) == FAT32_OK) {
-		fat32_close(&old);
-		fat32_delete(bak);
-		if (fat32_rename(path, bak) != FAT32_OK) { fat32_delete(path); }
+	if (f_close(&f) != FR_OK) ok = false;
+	if (!ok) { f_unlink(tmp); return "the card is full, or failed"; }
+	if (f_stat(path, NULL) == FR_OK) {
+		f_unlink(bak);
+		if (f_rename(path, bak) != FR_OK) f_unlink(path);
 	}
-	if (fat32_rename(tmp, path) != FAT32_OK) return "it was saved as .tmp";
+	if (f_rename(tmp, path) != FR_OK) return "it was saved as .tmp";
 	return NULL;
 }
 
@@ -490,12 +475,12 @@ const char *ed_io_save(const char *path, const char *a, size_t alen,
 
 static int read_help_level(void)
 {
-	fat32_file_t f;
-	if (fat32_open(&f, CFG_PATH) != FAT32_OK) return 3;
+	FIL f;
+	if (f_open(&f, CFG_PATH, FA_READ) != FR_OK) return 3;
 	char b[256];
-	size_t got = 0;
-	fat32_read(&f, b, sizeof b - 1, &got);
-	fat32_close(&f);
+	UINT got = 0;
+	f_read(&f, b, sizeof b - 1, &got);
+	f_close(&f);
 	b[got] = 0;
 	char *h = strstr(b, "help");
 	if (!h) return 3;
@@ -507,16 +492,13 @@ static int read_help_level(void)
 
 void ed_save_help_level(int level)
 {
-	fat32_file_t d;
-	if (fat32_open(&d, CFG_DIR) == FAT32_OK) fat32_close(&d);
-	else if (fat32_dir_create(&d, CFG_DIR) == FAT32_OK) fat32_close(&d);
+	f_mkdir(CFG_DIR);			/* (FR_EXIST if it's there) */
 	char b[96];
 	int n = snprintf(b, sizeof b, "# Diamond's settings\r\nhelp = %d\r\n", level);
-	fat32_delete(CFG_PATH);
-	fat32_file_t f;
-	if (fat32_create(&f, CFG_PATH) != FAT32_OK) return;
+	FIL f;
+	if (f_open(&f, CFG_PATH, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return;
 	write_all(&f, b, (size_t)n);
-	fat32_close(&f);
+	f_close(&f);
 }
 
 /* ------------------------------------------------------------ the list */
@@ -542,12 +524,12 @@ static void put_text(int col, int row, const char *s)
 /* the first lines of a document, in the list's panel */
 static void preview(const char *path, int x, int y, int size)
 {
-	fat32_file_t f;
-	if (fat32_open(&f, path) != FAT32_OK) return;
+	FIL f;
+	if (f_open(&f, path, FA_READ) != FR_OK) return;
 	char b[600];
-	size_t got = 0;
-	fat32_read(&f, b, sizeof b - 1, &got);
-	fat32_close(&f);
+	UINT got = 0;
+	f_read(&f, b, sizeof b - 1, &got);
+	f_close(&f);
 	b[got] = 0;
 	int cols = size / 5, rows = size / GLYPH_HEIGHT;
 	lcd_set_font(&font_5x10);
@@ -647,7 +629,7 @@ static void sign_on(void)
 #define UP 0
 #endif
 	static const struct { int row; uint16_t colour; const char *text; } lines[] = {
-		{ 1 - UP, 0xC618, "Diamond Release 0.3.1  Serial #RP2350W" },
+		{ 1 - UP, 0xC618, "Diamond Release 0.3.2  Serial #RP2350W" },
 		{ 2 - UP, 0xC618, "Copyright (C) 2026 Chris Torkildson" },
 		{ 3 - UP, 0xC618, "MIT licence: free to use and share" },
 		{ 5 - UP, 0xC618, "PicoCalc, 320 x 320" },
@@ -720,51 +702,29 @@ static bool edit(const char *path, bool is_new)
 	return r != ED_EXIT;
 }
 
-/* The shell's clock (shell v1.1 and later), for dating the files Diamond
-   saves: the local time, or false if the shell hasn't set it */
-static bool shell_clock(uint16_t *date, uint16_t *time)
-{
-#ifdef PICOCALC_SHELL_HAS_TIME
-	int64_t ms;
-	int offset;
-	if (!picocalc_shell_time(&ms, &offset)) return false;
-	time_t t = (time_t)(ms / 1000) + (time_t)offset * 60;
-	struct tm tm;
-	gmtime_r(&t, &tm);
-	if (tm.tm_year + 1900 < 1980 || tm.tm_year + 1900 > 2107) return false;
-	fat32_pack_time(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
-	                date, time);
-	return true;
-#else
-	(void)date;
-	(void)time;
-	return false;
-#endif
-}
-
 /* every file in dir, for ^KR's and ^KW's question */
 int ed_dir_names(const char *dir, char *out, size_t size)
 {
-	fat32_file_t d;
-	if (fat32_open(&d, dir) != FAT32_OK) return 0;
+	DIR d;
+	if (f_opendir(&d, dir) != FR_OK) return 0;
 	int n = 0;
 	size_t used = 0;
-	fat32_entry_t e;
+	static FILINFO e;
 	for (;;) {
-		if (fat32_dir_read(&d, &e) != FAT32_OK || !e.filename[0]) break;
-		if (e.attr & (FAT32_ATTR_VOLUME_ID | FAT32_ATTR_HIDDEN | FAT32_ATTR_SYSTEM)) continue;
-		if (e.filename[0] == '.') continue;
-		bool isdir = (e.attr & FAT32_ATTR_DIRECTORY) != 0;
-		size_t l = strlen(e.filename);
+		if (f_readdir(&d, &e) != FR_OK || !e.fname[0]) break;
+		if (e.fattrib & (AM_HID | AM_SYS)) continue;
+		if (e.fname[0] == '.') continue;
+		bool isdir = (e.fattrib & AM_DIR) != 0;
+		size_t l = strlen(e.fname);
 		if (used + l + 14 > size) break;
 		out[used++] = isdir ? 'D' : 'F';
-		memcpy(out + used, e.filename, l);
+		memcpy(out + used, e.fname, l);
 		used += l;
 		out[used++] = 0;
-		used += (size_t)snprintf(out + used, 12, "%lu", isdir ? 0ul : (unsigned long)e.size) + 1;
+		used += (size_t)snprintf(out + used, 12, "%lu", isdir ? 0ul : (unsigned long)e.fsize) + 1;
 		n++;
 	}
-	fat32_close(&d);
+	f_closedir(&d);
 	return n;
 }
 
@@ -774,8 +734,7 @@ int main(void)
 	lcd_init();
 	lcd_set_font(&font_8x10);
 	lcd_enable_cursor(false);
-	fat32_init();
-	fat32_set_time_source(shell_clock);
+	fs_init();			/* (files are dated by the shell's clock) */
 	keyboard_init();
 #ifdef DIAMOND_BT
 	btkbd_init();
@@ -796,10 +755,8 @@ int main(void)
 		.keys = "nN", .keys_help = list_keys, .keys_footer = "N: new",
 	};
 	char dir[PICKER_PATH] = "/documents", path[PICKER_PATH];
-	char last[FAT32_MAX_FILENAME_LEN + 1] = "";
-	fat32_file_t d;
-	if (fat32_open(&d, dir) == FAT32_OK) fat32_close(&d);
-	else strcpy(dir, "/");
+	char last[FF_MAX_LFN + 1] = "";
+	if (f_stat(dir, NULL) != FR_OK) strcpy(dir, "/");
 
 	for (;;) {
 		int got = picker_run(&style, dir, last[0] ? last : NULL, path);
@@ -815,9 +772,7 @@ int main(void)
 			if (!ok) continue;
 			if (!strchr(name, '.')) strncat(name, ".md", sizeof name - strlen(name) - 1);
 			snprintf(path, sizeof path, "%s%s%s", dir, strcmp(dir, "/") ? "/" : "", name);
-			fat32_file_t f;
-			bool exists = fat32_open(&f, path) == FAT32_OK;
-			if (exists) fat32_close(&f);
+			bool exists = f_stat(path, NULL) == FR_OK;
 			go_on = edit(path, !exists);
 		}
 		snprintf(last, sizeof last, "%s", strrchr(path, '/') + 1);

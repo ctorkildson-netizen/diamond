@@ -26,7 +26,7 @@ in Diamond itself, with a section on where Diamond and WordStar differ.
 Diamond starts in `/documents`, or at the top of the card if there's no
 such folder. When you save, the previous version is kept as a `.bak` file.
 F5 saves a screenshot in `/screenshots`. Files are dated when the shell's
-clock is set (shell v1.1 or later).
+clock is set.
 
 ## With a Bluetooth keyboard
 
@@ -121,13 +121,11 @@ reading view's fonts (`src/rfonts.c`) from DejaVu Sans and Sans Mono.
 
 | Submodule | Pinned to |
 |---|---|
-| [picocalc-extras](https://github.com/ctorkildson-netizen/picocalc-extras) | v1.1 (the list of documents, and the Bluetooth keyboard for diamond-bt) |
-| [picocalc-shell](https://github.com/BlairLeduc/picocalc-shell) (Blair Leduc) | v1.1 (the clock) |
-| [picocalc-text-starter](https://github.com/BlairLeduc/picocalc-text-starter) (Blair Leduc) | v0.15 plus four fixes, from the `diamond-dev` branch of [a fork](https://github.com/ctorkildson-netizen/picocalc-text-starter): FAT32 reading and writing without walking a file's chain from the start, file dates, and text clipped at the screen's edge |
+| [picocalc-extras](https://github.com/ctorkildson-netizen/picocalc-extras) | v2.1 (the list of documents, FatFs's build, and the Bluetooth keyboard for diamond-bt) |
+| [picocalc-shell](https://github.com/BlairLeduc/picocalc-shell) (Blair Leduc) | v1.2 (the clock) |
+| [picocalc-text-starter](https://github.com/BlairLeduc/picocalc-text-starter) (Blair Leduc) | v0.17 (the screen, keyboard and SD card, with FatFs) |
 
-The fixes have been offered to Blair. When a release of his includes them,
-the submodule goes back to his repo, pinned to that release. Dependabot opens
-a pull request here when a submodule's repo moves on.
+Dependabot opens a pull request here when a submodule's repo moves on.
 
 ## Licence
 

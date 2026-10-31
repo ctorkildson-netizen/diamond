@@ -6,5 +6,4 @@
 	url = https://github.com/BlairLeduc/picocalc-shell
 [submodule "modules/picocalc-text-starter"]
 	path = modules/picocalc-text-starter
-	url = https://github.com/ctorkildson-netizen/picocalc-text-starter
-	branch = diamond-dev
+	url = https://github.com/BlairLeduc/picocalc-text-starter
